@@ -152,6 +152,25 @@ class FreeTrailDetails(BaseModel):
     is_expired = models.BooleanField(default=False)
 
 
+class TwilioNumberVerification(BaseModel):
+    # customer_profile_sid
+    # business_name
+    # business_website
+    # notification_email
+    # use_case_categories=TWO_FACTOR_AUTHENTICATION, ACCOUNT_NOTIFICATIONS, CUSTOMER_CARE, CHARITY_NONPROFIT, DELIVERY_NOTIFICATIONS, FRAUD_ALERT_MESSAGING, EVENTS, HIGHER_EDUCATION, MARKETING, POLLING_AND_VOTING_NON_POLITICAL, POLITICAL_ELECTION_CAMPAIGNS, PUBLIC_SERVICE_ANNOUNCEMENT, SECURITY_ALERT
+    # use_case_summary
+    # production_message_sample
+    # opt_in_image_urls
+    # opt_in_type
+    # message_volume
+    # additional_information
+    # tollfree_phone_number_sid
+    # vetting_id
+    # vetting_provider
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
 class TwilioWebhookLog(models.Model):
     method = models.CharField(max_length=10, blank=True, null=True)
     path = models.CharField(max_length=255, blank=True, null=True)

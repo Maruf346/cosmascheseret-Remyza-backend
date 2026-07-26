@@ -613,7 +613,6 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     def get_master_client(self):
         return Client(self.MASTER_ACCOUNT_SID, self.MASTER_AUTH_TOKEN)
 
-
 class TwilioWebhookHandler(APIView):
     authentication_classes = []
     permission_classes = []

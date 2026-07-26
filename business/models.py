@@ -281,6 +281,8 @@ class PhoneNumber(BaseModel):
     def voice_enabled(self):
         return self.capabilities.get("voice", False)
 
+
+
 class UserNotificationSettings(BaseModel):
     user = models.OneToOneField("accounts.User", on_delete=models.CASCADE, related_name="user_notification_setting", blank=True, null=True)
     organization = models.OneToOneField("business.Organization", on_delete=models.CASCADE, related_name="user_notification_setting", blank=True, null=True)

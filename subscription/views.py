@@ -7,7 +7,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsClientUser
-from .choices import SubscriptionStatus, PaymentStatus
+from .choices import SubscriptionStatus, PaymentStatus, PlanType
+from common.choices import Status
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 from subscription.services.purchase import SubscriptionPurchaseService, SubscriptionValidationService
@@ -82,6 +83,46 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
                 }, status=status.HTTP_201_CREATED,
             )
 
+    @action(detail=False, methods=["post"], url_path="claim-free-trail")
+    def claim_free_trail(self, request):
+        with transaction.atomic():
+            user_subscription = UserSubscription.objects.filter(
+                user=self.request.user,
+                organization=self.get_organization(),
+                plan__plan_type=PlanType.FREE_TRAIL
+            )
+            print("user_subscription: ", user_subscription)
+            if user_subscription.exists():
+                return Response(
+                    {
+                        "status": False,
+                        "message": "Your free trail already claim."
+                    }, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            free_trail_subscription = SubscriptionPlan.objects.filter(
+                plan_type=PlanType.FREE_TRAIL,
+                is_active=True
+            ).first()
+
+            subscription_data = SubscriptionPurchaseService.claim_free_trail(
+                user=self.request.user,
+                organization=self.get_organization(),
+                trail_plan=free_trail_subscription,
+                billing_cycle=free_trail_subscription.billing_type,
+                day=free_trail_subscription.trial_days
+            )
+            return Response(
+                {
+                    "success": True,
+                    "message": "Subscription purchase initiated successfully.",
+                    "message": "Free Trail Subscription Claim successfully.",
+                    "data": {
+                        "subscription": UserSubscriptionSerializer(subscription_data["subscription"]).data
+                    },
+                }, status=status.HTTP_201_CREATED,
+            )
+
     @action(detail=False, methods=["post"], url_path="purchase-verify")
     def purchase_verify(self, request):
         with transaction.atomic():
@@ -120,6 +161,7 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
+    
 
     # @action(detail=True, methods=["delete"])
     # def remove(self, request, pk=None):

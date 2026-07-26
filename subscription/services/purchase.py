@@ -30,6 +30,26 @@ class SubscriptionValidationService:
 class SubscriptionPurchaseService:
     @classmethod
     @transaction.atomic
+    def claim_free_trail(cls, user, organization, trail_plan, billing_cycle, day):
+        if SubscriptionValidationService.has_active_subscription(organization):
+            raise ValidationError({"detail": "You already have an active subscription."})
+        now = timezone.now()
+        end_date = now + timedelta(days=day)
+        subscription = UserSubscription.objects.create(
+            user=user,
+            organization=organization,
+            plan=trail_plan,
+            billing_cycle=billing_cycle,
+            status=SubscriptionStatus.ACTIVE,
+            start_date=now,
+            end_date=end_date,
+            next_billing_date=end_date,
+            auto_renew=False
+        )
+        return {"subscription": subscription, "message": "Free Trail Claim Successfully."}
+
+    @classmethod
+    @transaction.atomic
     def purchase(cls, organization, plan, billing_cycle):
         if SubscriptionValidationService.has_active_subscription(organization):
             raise ValidationError({"detail": "You already have an active subscription."})
@@ -59,4 +79,7 @@ class SubscriptionPurchaseService:
             status=PaymentStatus.PENDING,
         )
         return {"subscription": subscription, "payment": payment}
+
+
+    
 

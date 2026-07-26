@@ -16,7 +16,6 @@ class SubscriptionPlan(BaseModel):
     currency = models.CharField(max_length=10, choices=Currency.choices, default=Currency.USD)
     trial_days = models.PositiveSmallIntegerField(default=0)
     
-    
     sms_limit = models.PositiveIntegerField(default=0)
     lead_limit = models.PositiveIntegerField(default=0)
     ai_reply_limit = models.PositiveIntegerField(default=0)
