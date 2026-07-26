@@ -213,21 +213,16 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     @transaction.atomic
     def purchase(self, request):
         data = request.data
-        print("data: ", data)
         phone_number = data.get("phone_number", None)
 
         if phone_number is not None:
             try:
                 payload = {"phone_number": phone_number,}
-
                 client =self.get_trial_client()
                 purchased = client.incoming_phone_numbers.create(**payload)
-                print("purchased: ", purchased)
                 logger.info("Phone number purchased successfully (%s)", purchased.phone_number,)
-                
                 serialize_phone_number = self.to_dict(purchased)
-                print("serialize_phone_number: ", serialize_phone_number)
-                
+
                 obj, created = FreeTrailPhoneNumber.objects.update_or_create(
                     provider_phone_sid=serialize_phone_number["sid"],
                     phone_number=serialize_phone_number["phone_number"],
@@ -262,12 +257,11 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-
         else:
             return Response(
                 {
                     "success": False,
-                    "message": "Parchase Number field i empty."
+                    "message": "Parchase Number field is empty."
                 }, status=status.HTTP_400_BAD_REQUEST
             )
     

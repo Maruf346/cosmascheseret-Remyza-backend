@@ -84,3 +84,16 @@ class LeadTagAssignment(BaseModel):
     def __str__(self):
         return f"{self.lead.contact_number} → {self.tag.name}"
 
+class FollowUpReminder(BaseModel):
+    organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="reminders")
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="reminders")
+    scheduled_time = models.DateTimeField(db_index=True)
+    note = models.TextField(blank=True)
+    is_sent = models.BooleanField(default=False, db_index=True)
+
+    class Meta:
+        db_table = "crm_followup_reminders"
+        ordering = ["scheduled_time"]
+
+    def __str__(self):
+        return f"Reminder for {self.lead.contact_number} at {self.scheduled_time}"
