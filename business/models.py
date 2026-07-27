@@ -7,7 +7,6 @@ from .choices import (
     Currency, DateFormat, Language, TimeFormat, AIReplyTone,PhoneProvider, PhoneNumberStatus
 )
 from core.models import BusinessType, Industry
-from .managers import OrganizationManager, ProviderAccountManager, BusinessSettingManager, PhoneNumberManager
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -34,8 +33,6 @@ class Organization(BaseModel):
     is_onboarding_completed = models.BooleanField(default=False)
     onboarding_step = models.CharField(max_length=50, choices=OnboardingStep.choices, default=OnboardingStep.ACCOUNT_CREATED)
 
-    objects = OrganizationManager()
-    
     class Meta:
         db_table = "organizations"
         verbose_name = "Organization"
@@ -61,16 +58,15 @@ class Organization(BaseModel):
     def is_active(self):
         return (
             self.status == OrganizationStatus.ACTIVE
-            and not self.is_deleted
         )
     
     @property
     def has_phone_number(self):
-        return self.phone_numbers.filter(is_deleted=False).exists()
+        return self.phone_numbers.filter().exists()
     
     @property
     def primary_phone(self):
-        return self.phone_numbers.filter(is_primary=True, is_deleted=False).first()
+        return self.phone_numbers.filter(is_primary=True).first()
 
     @property
     def lead_count(self):
@@ -178,8 +174,6 @@ class BusinessSetting(BaseModel):
     email_notification_enabled = models.BooleanField(default=True)
     notification_sound = models.BooleanField(default=True)
 
-    objects = BusinessSettingManager()
-
     class Meta:
         db_table = "business_settings"
         verbose_name = "Business Setting"
@@ -215,7 +209,6 @@ class ProviderAccount(BaseModel):
     webhook_secret = models.CharField(max_length=255, blank=True, default="")
     last_synced_at = models.DateTimeField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    objects = ProviderAccountManager()
 
     class Meta:
         db_table = "provider_accounts"
@@ -244,8 +237,7 @@ class PhoneNumber(BaseModel):
     purchased_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(default=timezone.now)
-    objects = PhoneNumberManager()
-
+    
     class Meta:
         db_table = "business_phone_numbers"
         verbose_name = "Phone Number"
@@ -258,7 +250,7 @@ class PhoneNumber(BaseModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "is_primary"], condition=models.Q(is_primary=True, is_deleted=False), name="unique_primary_phone_per_org"
+                fields=["organization", "is_primary"], condition=models.Q(is_primary=True), name="unique_primary_phone_per_org"
             ),
         ]
 
@@ -267,7 +259,7 @@ class PhoneNumber(BaseModel):
 
     @property
     def is_active(self):
-        return self.status == PhoneNumberStatus.ACTIVE and not self.is_deleted
+        return self.status == PhoneNumberStatus.ACTIVE
 
     @property
     def sms_enabled(self):

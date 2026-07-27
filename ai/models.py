@@ -32,7 +32,7 @@ class PromptTemplate(BaseModel):
         db_table = "ai_prompt_templates"
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "name"], condition=models.Q(is_deleted=False), name="unique_prompt_version"
+                fields=["organization", "name"], name="unique_prompt_version"
             ),
         ]
 

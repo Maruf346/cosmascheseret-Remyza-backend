@@ -27,7 +27,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     search_fields = ("name", "email", "support_email", "website", "owner__phone_number", "owner__email")
     autocomplete_fields = ("owner",)
     list_select_related = ("owner",)
-    readonly_fields = ("created_at", "updated_at", "deleted_at")
+    readonly_fields = ("created_at", "updated_at")
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
     list_per_page = 25
@@ -35,7 +35,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         ("Organization Information", {"fields": ("owner", "name", "status", "country", "logo", "favicon")}),
         ("Business Information", {"fields": ("business_type", "industry", "description", "website", "email", "support_email", "business_hours")}),
         ("Onboarding", {"fields": ("is_verified", "is_demo", "is_onboarding_completed", "onboarding_step")}),
-        ("System Information", {"classes": ("collapse",), "fields": ("created_at", "updated_at", "deleted_at")}),
+        ("System Information", {"classes": ("collapse",), "fields": ("created_at", "updated_at")}),
     )
 
     @admin.display(boolean=True, description="Has Phone")

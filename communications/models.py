@@ -3,7 +3,6 @@ from common.models import BaseModel
 from .choices import (
     ConversationStatus, MessageDirection, MessageStatus, MessageType, SentimentType, IntentType, HandoffReason, ProviderType, QueueStatus, MessageTemplateType
 )
-from .managers import ConversationManager, MessageManager, AIAnalysisManager
 
 class Conversation(BaseModel):
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="conversations")
@@ -17,7 +16,6 @@ class Conversation(BaseModel):
     ai_enabled = models.BooleanField(default=True)
     summary = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
-    objects = ConversationManager()
 
     class Meta:
         db_table = "crm_conversations"
@@ -56,8 +54,7 @@ class Message(BaseModel):
     error_message = models.TextField(blank=True)
     is_ai_generated = models.BooleanField(default=False)
     metadata = models.JSONField(default=dict, blank=True)
-    objects = MessageManager()
-    
+
     class Meta:
         db_table = "crm_messages"
         ordering = ["created_at"]
@@ -95,8 +92,7 @@ class AIAnalysis(BaseModel):
     processing_time_ms = models.PositiveIntegerField(default=0)
     analyzed_at = models.DateTimeField(auto_now_add=True)
     metadata = models.JSONField(default=dict, blank=True)
-    objects = AIAnalysisManager()
-
+    
     class Meta:
         db_table = "ai_message_analysis"
         ordering = ["-analyzed_at",]
@@ -169,7 +165,6 @@ class StaticMessageTemplate(BaseModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "user", "template_type"],
-                condition=models.Q(is_deleted=False),
                 name="unique_static_template",
             )
         ]

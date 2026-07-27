@@ -35,7 +35,7 @@ class Lead(BaseModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "contact_number"], condition=models.Q(is_deleted=False), name="unique_lead_per_organization"
+                fields=["organization", "contact_number"], name="unique_lead_per_organization"
             ),
         ]
 
@@ -63,7 +63,7 @@ class LeadTag(BaseModel):
         db_table = "crm_lead_tags"
         ordering = ["name"]
         constraints = [
-            models.UniqueConstraint(fields=["lead", "name"], condition=models.Q(is_deleted=False), name="unique_lead_tag"),
+            models.UniqueConstraint(fields=["lead", "name"], name="unique_lead_tag"),
         ]
 
 class LeadTagAssignment(BaseModel):
@@ -74,7 +74,7 @@ class LeadTagAssignment(BaseModel):
     class Meta:
         db_table = "crm_lead_tag_assignments"
         constraints = [
-            models.UniqueConstraint(fields=["lead", "tag"], condition=models.Q(is_deleted=False), name="unique_tag_assignment"),
+            models.UniqueConstraint(fields=["lead", "tag"], name="unique_tag_assignment"),
         ]
         indexes = [
             models.Index(fields=["lead"]),
