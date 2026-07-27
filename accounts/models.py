@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from common.models import BaseModel
 from .choices import DeviceType, OTPPurpose, LoginMethod, LoginStatus, UserType
-from .managers import UserManager
+from .managers import UserManager, OTPVerificationManager
 from django.utils import timezone
 
 
@@ -83,6 +83,8 @@ class OTPVerification(BaseModel):
     attempt_count = models.PositiveSmallIntegerField(default=0)
     max_attempts = models.PositiveSmallIntegerField(default=5)
     is_used = models.BooleanField(default=False)
+
+    objects = OTPVerificationManager()
     
     class Meta:
         db_table = "otp_verifications"

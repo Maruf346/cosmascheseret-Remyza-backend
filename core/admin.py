@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from .models import (
     BusinessType, Notification, AuditLog, SystemSetting, APIKey, Industry,
-    TwilioConfiguration, FreeTrailPhoneNumber, FreeTrailDetails, TwilioWebhookLog
+    TwilioConfiguration, FreeTrailPhoneNumber, UserFreeTrailNumber, TwilioWebhookLog
 )
 
 
@@ -69,5 +69,5 @@ admin.site.register(BusinessType)
 admin.site.register(Industry)
 admin.site.register(TwilioConfiguration)
 admin.site.register(FreeTrailPhoneNumber)
-admin.site.register(FreeTrailDetails)
+admin.site.register(UserFreeTrailNumber)
 admin.site.register(TwilioWebhookLog)

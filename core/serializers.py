@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import BusinessType, Industry, FreeTrailPhoneNumber, FreeTrailDetails
+from .models import BusinessType, Industry, FreeTrailPhoneNumber, UserFreeTrailNumber
 
 
 class BusinessTypeSerializer(serializers.ModelSerializer):

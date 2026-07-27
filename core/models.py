@@ -142,9 +142,8 @@ class FreeTrailPhoneNumber(BaseModel):
     released_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(default=timezone.now)
 
-class FreeTrailDetails(BaseModel):
+class UserFreeTrailNumber(BaseModel):
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="trail_phone_numbers", blank=True, null=True)
-    provider = models.ForeignKey("business.ProviderAccount", on_delete=models.SET_NULL, related_name="trail_phone_numbers", blank=True, null=True)
     free_trail = models.ForeignKey(FreeTrailPhoneNumber, on_delete=models.SET_NULL, blank=True, null=True)
     trail_number = models.CharField(max_length=20, blank=True, null=True)
     start_at = models.DateTimeField(default=timezone.now)

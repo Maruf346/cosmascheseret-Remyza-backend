@@ -35,7 +35,7 @@ from datetime import timedelta
 from .models import (
     TwilioConfiguration,
     FreeTrailPhoneNumber,
-    FreeTrailDetails,
+    UserFreeTrailNumber,
 )
 
 from core.utils.viewsets import OwnReadOnlyModelViewSet
