@@ -21,7 +21,6 @@ class SubscriptionPlanViewSet(OwnModelViewSet):
     permission_classes = [AdminWritePermission]
     queryset = SubscriptionPlan.objects.filter(is_active=True).order_by("price", "name")
 
-
 class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
     serializer_class = UserSubscriptionSerializer
     permission_classes = [IsAuthenticated, IsClientUser]
@@ -31,18 +30,14 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
             UserSubscription.objects
             .select_related("plan", "organization")
             .filter(
-                organization=self.request.user.organization
+                user=self.request.user
             )
             .order_by("-created_at")
         )
 
-    def get_organization(self):
-        return self.request.user.organization
-    
     @action(detail=False, methods=["get"], url_path="current-plan")
     def current_plan(self, request):
-        organization = self.get_organization()
-        subscription = SubscriptionValidationService.get_active_subscription(organization)
+        subscription = SubscriptionValidationService.get_active_subscription(self.request.user)
         if not subscription:
             return Response(
                 {
@@ -67,9 +62,10 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
             serializer.is_valid(raise_exception=True)
             subscription_plan = serializer.context["plan"]
             subscription_data = SubscriptionPurchaseService.purchase(
-                organization=self.get_organization(),
+                user=self.request.user,
                 plan=subscription_plan,
                 billing_cycle=subscription_plan.billing_type,
+                # organization=self.request.user.organization or None
             )
             return Response(
                 {
@@ -88,10 +84,8 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
         with transaction.atomic():
             user_subscription = UserSubscription.objects.filter(
                 user=self.request.user,
-                organization=self.get_organization(),
                 plan__plan_type=PlanType.FREE_TRAIL
             )
-            print("user_subscription: ", user_subscription)
             if user_subscription.exists():
                 return Response(
                     {
@@ -107,7 +101,6 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
 
             subscription_data = SubscriptionPurchaseService.claim_free_trail(
                 user=self.request.user,
-                organization=self.get_organization(),
                 trail_plan=free_trail_subscription,
                 billing_cycle=free_trail_subscription.billing_type,
                 day=free_trail_subscription.trial_days
@@ -143,6 +136,8 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
 
             subscription.status = SubscriptionStatus.ACTIVE
             subscription.save(update_fields=["status"])
+
+            UserSubscription.objects.filter(user=self.request.user, plan__plan_type=PlanType.FREE_TRAIL).delete()
 
             purchase_info, created = PurchaseInfo.objects.get_or_create(
                 payment=payment,

@@ -4,6 +4,7 @@ import secrets
 from datetime import timedelta
 from django.db import models
 from django.utils import timezone
+from .querysets import OTPVerificationQuerySet
 
 
 class UserManager(BaseUserManager):
@@ -21,8 +22,8 @@ class UserManager(BaseUserManager):
         return self.create_user(phone_number, password, **extra_fields )
 
 class OTPVerificationManager(models.Manager):
-    # def get_queryset(self):
-    #     return OTPVerificationQuerySet(self.model, using=self._db)
+    def get_queryset(self):
+        return OTPVerificationQuerySet(self.model, using=self._db)
 
     @staticmethod
     def hash_otp(otp: str):

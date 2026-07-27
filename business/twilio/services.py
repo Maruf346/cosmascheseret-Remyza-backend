@@ -16,14 +16,20 @@ class TwilioService:
     def __init__(self, organization=None):
         self.organization = organization
         self.client = self.master_client()
+        self.free_trail_client = self.free_trail_client()
 
     # ---------------------------------------------------------------------
-    # Authentication
-    # ---------------------------------------------------------------------
+    # Client
     def master_client(self):
         ACCOUNT_SID = os.getenv("ACCOUNT_SID")
         AUTH_TOKEN = os.getenv("AUTH_TOKEN")
         client = Client(ACCOUNT_SID, AUTH_TOKEN)
+        return client
+
+    def free_trail_client(self):
+        FREE_TRAIL_ACCOUNT_SID = os.getenv("FREE_TRAIL_ACCOUNT_SID")
+        FREE_TRAIL_AUTH_TOKEN = os.getenv("FREE_TRAIL_AUTH_TOKEN")
+        client = Client(FREE_TRAIL_ACCOUNT_SID, FREE_TRAIL_AUTH_TOKEN)
         return client
 
     def subaccount_client(self) -> Client:
@@ -32,6 +38,51 @@ class TwilioService:
             provider.account_sid,
             provider.auth_token,
         )
+    # ---------------------------------------------------------------------
+
+    # ---------------------------------------------------------------------
+    # Number Search Method
+    def serialize_search_phone_number(self, number):
+        return {
+            "friendly_name": number.friendly_name,
+            "phone_number": number.phone_number,
+            "lata": getattr(number, "lata", None),
+            "rate_center": getattr(number, "rate_center", None),
+            "region": getattr(number, "region", None),
+            "postal_code": getattr(number, "postal_code", None),
+            "locality": getattr(number, "locality", None),
+            "iso_country": getattr(number, "iso_country", None),
+            "capabilities": number.capabilities,
+            "address_requirements": number.address_requirements,
+        }
+
+    def search_numbers(self, phone_type, country="US", area_code=None, sms_enabled=True, limit=2,):
+        client = self.free_trail_client()
+        try:
+            if phone_type == "local":
+                resource = client.available_phone_numbers(country).local
+            elif phone_type == "toll_free":
+                resource = client.available_phone_numbers(country).toll_free
+            else:
+                raise ValueError("Unsupported phone type.")
+            
+            params = {
+                "limit": limit,
+                "sms_enabled": sms_enabled,
+            }
+            if area_code:
+                params["area_code"] = area_code
+            numbers = resource.list(**params)
+            return [
+                self.serialize_search_phone_number(number)
+                for number in numbers
+            ]
+        except TwilioRestException:
+            logger.exception("Unable to search phone numbers.")
+            raise
+    # ---------------------------------------------------------------------
+
+
 
     # For Production---
     def serialize_subaccount(self, sub_account):
@@ -151,46 +202,9 @@ class TwilioService:
             raise exc
     
 
-    def serialize_search_phone_number(self, number):
-        return {
-            "friendly_name": number.friendly_name,
-            "phone_number": number.phone_number,
-            "lata": getattr(number, "lata", None),
-            "rate_center": getattr(number, "rate_center", None),
-            "region": getattr(number, "region", None),
-            "postal_code": getattr(number, "postal_code", None),
-            "locality": getattr(number, "locality", None),
-            "iso_country": getattr(number, "iso_country", None),
-            "capabilities": number.capabilities,
-            "address_requirements": number.address_requirements,
-        }
+    
 
-    def search_numbers(self, country="US", phone_type="local", area_code=None, sms_enabled=True, limit=2,):
-        client = self.subaccount_client()
-        try:
-            if phone_type == "local":
-                resource = client.available_phone_numbers(country).local
-            elif phone_type == "toll_free":
-                resource = client.available_phone_numbers(country).toll_free
-            else:
-                raise ValueError("Unsupported phone type.")
-            
-            # numbers = resource.list(limit=2, sms_enabled=True)
-            params = {
-                "limit": limit,
-                "sms_enabled": sms_enabled,
-            }
-            if area_code:
-                params["area_code"] = area_code
-            numbers = resource.list(**params)
-            return [
-                self.serialize_search_phone_number(number)
-                for number in numbers
-            ]
-        except TwilioRestException:
-            logger.exception("Unable to search phone numbers.")
-            raise
-
+    
     
     def advanced_search_numbers( self, country: str = "US", phone_type: str = "local", area_code: str | None = None, contains: str | None = None, in_region: str | None = None, in_locality: str | None = None, near_number: str | None = None, near_lat_long: tuple | None = None, distance: int | None = None, sms_enabled: bool = True, voice_enabled: bool = False, mms_enabled: bool = False, fax_enabled: bool = False, exclude_all_address_required: bool = False, limit: int = 20,):
         client = self.subaccount_client()

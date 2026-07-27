@@ -129,7 +129,8 @@ class CustomTokenVerifyView(TokenVerifyView):
 
 
 
-
+from subscription.services.purchase import SubscriptionValidationService
+from subscription.serializers import UserSubscriptionSerializer
 class CurrentUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -145,13 +146,26 @@ class CurrentUserAPIView(APIView):
     def get(self, request):
         user = self.get_user(request)
         serializer = CurrentUserSerializer(user, context={"request": request})
+
+        has_active_subscription = SubscriptionValidationService.has_active_subscription_with_free_trial(user)
+        active_subscription = SubscriptionValidationService.get_active_subscription(user)
+
+        response = {
+            "user": serializer.data,
+            "has_active_subscription": has_active_subscription,
+        }
+
+        if has_active_subscription:
+            response["plan_type"] = active_subscription.plan.plan_type,
+            response["expires_at"] = active_subscription.expires_at,
+            response["active_subscription"] = UserSubscriptionSerializer(active_subscription).data
+
         return Response(
             {
                 "success": True,
                 "message": "User data retrieved successfully.",
-                "data": serializer.data,
-            },
-            status=status.HTTP_200_OK,
+                "data": response
+            }, status=status.HTTP_200_OK,
         )
 
     @transaction.atomic

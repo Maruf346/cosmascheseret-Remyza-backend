@@ -2,10 +2,11 @@ from django.db import models
 
 class PlanType(models.TextChoices):
     FREE_TRAIL = "free_trial", "Free Trail"
-    STARTER = "starter", "Starter"
-    GROWTH = "growth", "Growth"
-    BUSINESS = "business", "Business"
-    ENTERPRISE = "enterprise", "Enterprise"
+    PAID = "paid", "Paid"
+    # STARTER = "starter", "Starter"
+    # GROWTH = "growth", "Growth"
+    # BUSINESS = "business", "Business"
+    # ENTERPRISE = "enterprise", "Enterprise"
 
 class BillingType(models.TextChoices):
     DAY = "day", "Day"

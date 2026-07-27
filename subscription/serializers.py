@@ -39,7 +39,7 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserSubscription
-        fields = ("id", "uuid", "plan", "status", "billing_cycle", "start_date", "end_date", "next_billing_date", "auto_renew", "cancelled_at", "expires_at", "payment_status", "invoice_status", "days_remaining", "is_active", "created_at", "updated_at")
+        fields = ("id", "uuid", "plan", "status", "billing_cycle", "start_date", "expires_at", "next_billing_date", "auto_renew", "cancelled_at", "expires_at", "payment_status", "invoice_status", "days_remaining", "is_active", "created_at", "updated_at")
 
     def get_payment_status(self, obj):
         payment = obj.payments.order_by("-created_at").first()
@@ -50,16 +50,16 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
         return invoice.status if invoice else None
 
     def get_days_remaining(self, obj):
-        if not obj.end_date:
+        if not obj.expires_at:
             return None
-        remaining = obj.end_date - timezone.now()
+        remaining = obj.expires_at - timezone.now()
         if remaining.total_seconds() <= 0:
             return 0
         return remaining.days
 
     def get_is_active(self, obj):
         now = timezone.now()
-        return obj.status == "ACTIVE" and obj.end_date and obj.end_date > now
+        return obj.status == "ACTIVE" and obj.expires_at and obj.expires_at > now
 
 class VerifyPurchaseSerializer(serializers.Serializer):
     platform = serializers.ChoiceField(choices=PurchasePlatform.choices)

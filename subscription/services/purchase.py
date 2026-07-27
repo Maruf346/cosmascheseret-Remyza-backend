@@ -14,63 +14,71 @@ from subscription.choices import (
     SubscriptionStatus,
     PaymentStatus,
 )
+from ..choices import PlanType
 
 class SubscriptionValidationService:
     @staticmethod
-    def get_active_subscription(organization):
+    def get_active_subscription(user):
         now = timezone.now()
         return UserSubscription.objects.select_related("plan").filter(
-            organization=organization, status=SubscriptionStatus.ACTIVE, start_date__lte=now, end_date__gte=now
+            user=user, status=SubscriptionStatus.ACTIVE, start_date__lte=now, expires_at__gte=now
         ).first()
 
     @classmethod
-    def has_active_subscription(cls, organization):
-        return cls.get_active_subscription(organization) is not None
+    def has_active_subscription(cls, user):
+        get_active_subscription = cls.get_active_subscription(user)
+        if get_active_subscription:
+            return get_active_subscription.plan.plan_type == PlanType.PAID
+        return False
+
+    @classmethod
+    def has_active_subscription_with_free_trial(cls, user):
+        get_active_subscription = cls.get_active_subscription(user)
+        return get_active_subscription is not None
 
 class SubscriptionPurchaseService:
     @classmethod
     @transaction.atomic
-    def claim_free_trail(cls, user, organization, trail_plan, billing_cycle, day):
-        if SubscriptionValidationService.has_active_subscription(organization):
+    def claim_free_trail(cls, user, trail_plan, billing_cycle, day):
+        if SubscriptionValidationService.has_active_subscription(user):
             raise ValidationError({"detail": "You already have an active subscription."})
         now = timezone.now()
-        end_date = now + timedelta(days=day)
+        expires_at = now + timedelta(days=day)
         subscription = UserSubscription.objects.create(
             user=user,
-            organization=organization,
             plan=trail_plan,
             billing_cycle=billing_cycle,
             status=SubscriptionStatus.ACTIVE,
             start_date=now,
-            end_date=end_date,
-            next_billing_date=end_date,
+            expires_at=expires_at,
+            next_billing_date=expires_at,
             auto_renew=False
         )
         return {"subscription": subscription, "message": "Free Trail Claim Successfully."}
 
     @classmethod
     @transaction.atomic
-    def purchase(cls, organization, plan, billing_cycle):
-        if SubscriptionValidationService.has_active_subscription(organization):
+    def purchase(cls, user, plan, billing_cycle, organization=None):
+        if SubscriptionValidationService.has_active_subscription(user):
             raise ValidationError({"detail": "You already have an active subscription."})
 
         now = timezone.now()
         if billing_cycle == BillingCycle.MONTHLY:
-            end_date = now + timedelta(days=30)
-
+            expires_at = now + timedelta(days=30)
         elif billing_cycle == BillingCycle.YEARLY:
-            end_date = now + timedelta(days=365)
+            expires_at = now + timedelta(days=365)
         else:
             raise ValidationError({"billing_cycle": "Invalid billing cycle."})
 
         subscription = UserSubscription.objects.create(
+            user=user,
             organization=organization,
             plan=plan,
             billing_cycle=billing_cycle,
             status=SubscriptionStatus.AWAITING_PAYMENT,
             start_date=now,
-            end_date=end_date,
-            next_billing_date=end_date,
+            expires_at=expires_at,
+            next_billing_date=expires_at,
         )
         payment = Payment.objects.create(
             subscription=subscription,

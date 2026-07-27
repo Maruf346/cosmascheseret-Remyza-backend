@@ -19,7 +19,7 @@ class SubscriptionPlanAdmin(admin.ModelAdmin):
 
 @admin.register(UserSubscription)
 class UserSubscriptionAdmin(admin.ModelAdmin):
-    list_display = ("id", "organization", "plan", "status", "billing_cycle", "auto_renew", "start_date", "end_date")
+    list_display = ("id", "user", "organization", "plan", "status", "billing_cycle", "auto_renew", "start_date", "expires_at")
     list_filter = ("status", "billing_cycle", "auto_renew", "created_at")
     search_fields = ("organization__name", "plan__name")
     autocomplete_fields = ("organization", "plan")

@@ -35,16 +35,15 @@ class SubscriptionPlan(BaseModel):
 class UserSubscription(BaseModel):
     uuid = models.UUIDField(max_length=120, db_index=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="subscriptions", blank=True, null=True)
-    organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="subscription")
+    organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="subscription", blank=True, null=True)
     plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT, related_name="subscriptions")
     status = models.CharField(max_length=20, choices=SubscriptionStatus.choices, default=SubscriptionStatus.AWAITING_PAYMENT, db_index=True)
-    billing_cycle = models.CharField(max_length=20, choices=BillingCycle.choices)
+    billing_cycle = models.CharField(max_length=20, choices=BillingCycle.choices, blank=True, null=True)
     start_date = models.DateTimeField()
-    end_date = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     next_billing_date = models.DateTimeField(null=True, blank=True)
     auto_renew = models.BooleanField(default=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
-    expires_at = models.DateTimeField(null=True, blank=True)
 
 class Payment(BaseModel):
     subscription = models.ForeignKey(UserSubscription, on_delete=models.CASCADE, related_name="payments")
@@ -73,7 +72,8 @@ class PurchaseInfo(BaseModel):
     
     platform = models.CharField(max_length=20, choices=PurchasePlatform.choices)
     product_id = models.CharField(max_length=100, blank=True, null=True)
-    transaction_id = models.CharField(max_length=255, unique=True, db_index=True)
+    transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    # transaction_id = models.CharField(max_length=255, unique=True, db_index=True)
     original_transaction_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     purchase_token = models.TextField(blank=True, default="")
     receipt_data = models.JSONField(default=dict, blank=True)

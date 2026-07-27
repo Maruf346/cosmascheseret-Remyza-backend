@@ -1,0 +1,42 @@
+
+def purchase_to_dict(phone):
+    return {
+        "sid": phone.sid,
+        "account_sid": phone.account_sid,
+        "phone_number": phone.phone_number,
+        "friendly_name": phone.friendly_name,
+        "status": phone.status,
+        "type": phone.type,
+        "origin": phone.origin,
+        "capabilities": phone.capabilities,
+        "sms_url": phone.sms_url,
+        "voice_url": phone.voice_url,
+        "sms_method": phone.sms_method,
+        "voice_method": phone.voice_method,
+        "status_callback": phone.status_callback,
+        "status_callback_method": phone.status_callback_method,
+        "voice_fallback_url": phone.voice_fallback_url,
+        "voice_fallback_method": phone.voice_fallback_method,
+        "sms_fallback_url": phone.sms_fallback_url,
+        "sms_fallback_method": phone.sms_fallback_method,
+        "address_sid": phone.address_sid,
+        "bundle_sid": phone.bundle_sid,
+        "identity_sid": phone.identity_sid,
+        "trunk_sid": phone.trunk_sid,
+        "voice_application_sid": phone.voice_application_sid,
+        "sms_application_sid": phone.sms_application_sid,
+        "voice_receive_mode": phone.voice_receive_mode,
+        "voice_caller_id_lookup": phone.voice_caller_id_lookup,
+        "emergency_status": phone.emergency_status,
+        "emergency_address_sid": phone.emergency_address_sid,
+        "emergency_address_status": phone.emergency_address_status,
+        "api_version": phone.api_version,
+        "address_requirements": phone.address_requirements,
+        "beta": phone.beta,
+        "uri": phone.uri,
+        "date_created": phone.date_created,
+        "date_updated": phone.date_updated,
+    }
+
+
+

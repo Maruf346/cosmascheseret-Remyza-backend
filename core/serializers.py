@@ -24,6 +24,7 @@ class SearchTrialNumberSerializer(serializers.Serializer):
     area_code = serializers.IntegerField(required=False)
     contains = serializers.CharField(required=False)
     limit = serializers.IntegerField(default=20)
+    type = serializers.CharField(required=False)
 
 class FreeTrailPhoneNumberSerializer(serializers.ModelSerializer):
     class Meta:

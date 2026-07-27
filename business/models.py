@@ -197,6 +197,7 @@ class BusinessSetting(BaseModel):
         return self.push_notification_enabled or self.email_notification_enabled
 
 class ProviderAccount(BaseModel):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="provider_account", blank=True, null=True)
     organization = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name="provider_account")
     provider = models.CharField(max_length=20, choices=PhoneProvider.choices, default=PhoneProvider.TWILIO, db_index=True)
     account_sid = models.CharField(max_length=64, unique=True, db_index=True)
