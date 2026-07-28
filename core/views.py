@@ -53,7 +53,7 @@ from rest_framework.exceptions import ValidationError
 
 
 from .twilio_service import TwilioService
-
+from .helper import TFV_to_dict
 class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     serializer_class = FreeTrailPhoneNumberSerializer
     queryset = (FreeTrailPhoneNumber.objects.select_related().order_by("phone_number"))
@@ -71,7 +71,7 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
         country = request.query_params.get("country", "US")
         type = request.query_params.get("type", "toll_free")
         area_code = request.query_params.get("area_code", None)
-        limit = request.query_params.get("limit", None)
+        limit = request.query_params.get("limit", 2)
         search = request.query_params.get("search", None)
 
         twilio_service = TwilioService()
@@ -101,8 +101,6 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     @action(detail=False, methods=["post"])
     @transaction.atomic
     def purchase(self, request):
-        from .helper import purchase_to_dict
-
         data = request.data
         phone_number = data.get("phone_number", None)
 
@@ -111,40 +109,15 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
                 payload = {"phone_number": phone_number,}
 
                 twilio_service = TwilioService()
-                twilio_service.purchase_number(phone_number=phone_number, user=self.request.user)
-
-                # client =self.get_trial_client()
-                # purchased = client.incoming_phone_numbers.create(**payload)
-                # logger.info("Phone number purchased successfully (%s)", purchased.phone_number,)
-                # serialize_phone_number = purchase_to_dict(purchased)
-
-                # obj, created = FreeTrailPhoneNumber.objects.update_or_create(
-                #     provider_phone_sid=serialize_phone_number["sid"],
-                #     phone_number=serialize_phone_number["phone_number"],
-                #     defaults={
-                #         "owner_account_sid": self.MASTER_ACCOUNT_SID,
-                #         "account_sid": self.FREE_TRAIL_ACCOUNT_SID,
-                #         "account_auth_token": self.FREE_TRAIL_AUTH_TOKEN,
-                #         "capabilities": serialize_phone_number["capabilities"],
-                #         "metadata": serialize_phone_number,
-                #         "status": PhoneNumberStatus.ACTIVE,
-
-                #         "purchased_at": serialize_phone_number["date_created"],
-                #         "last_synced_at": serialize_phone_number["date_updated"],
-                #         "is_used": False,
-                #         "webhook_url": serialize_phone_number["sms_url"] or "",
-                #     },
-                # )
-                
-                # return Response(
-                #     {
-                #         "success": True,
-                #         "message": "Trial number purchased successfully.",
-                #         "data": self.get_serializer(obj).data
-                #     }, status=status.HTTP_201_CREATED
-                # )
+                free_trail_number = twilio_service.purchase_free_trail_number(phone_number=phone_number)
+                return Response(
+                    {
+                        "success": True,
+                        "message": "Trial number purchased successfully.",
+                        "data": self.get_serializer(free_trail_number).data
+                    }, status=status.HTTP_201_CREATED
+                )
             except TwilioRestException as e:
-                print("e: ", e)
                 return Response(
                     {
                         "success": False,
@@ -160,59 +133,17 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST
             )
     
-
-    # =========Only Twilio API=====================
-    # =============================================
-    
-    # All Available Trial Number---
-    @action(detail=False, methods=["get"])
-    def available(self, request):
-        queryset = self.get_queryset().filter(status=PhoneNumberStatus.ACTIVE, is_used=False)
-        return Response(
-            {
-                "success": True,
-                "count": len(queryset),
-                "results": self.get_serializer(queryset, many=True).data,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-    # Search Available number in Twilio---
-    
-
-    
-
-    # Sub Account Create in Twilio---
-    def serialize_subaccount(self, sub_account):
-        return {
-            "sid": sub_account.sid,
-            "friendly_name": sub_account.friendly_name,
-            "status": sub_account.status,
-            "owner_account_sid": sub_account.owner_account_sid,
-            # "date_created": sub_account.date_created,
-            "auth_token": sub_account.auth_token,
-        }
-    
-    @action(detail=False, methods=["post"], url_path="create-free-trail-account")
+    @action(detail=False, methods=["post"], url_path="add-trail-number")
     @transaction.atomic
-    def create_free_trail_account(self, request):
+    def add_toll_free_number(self, request):
         data = request.data
-        account_name = data.get("account_name", None)
-
-        # ACCOUNT_SID = os.getenv("ACCOUNT_SID")
-        # AUTH_TOKEN = os.getenv("AUTH_TOKEN")
-        # client = Client(ACCOUNT_SID, AUTH_TOKEN)
-        # sub_account = client.api.accounts.create(
-        #     friendly_name=account_name
-        # )
-        # serialize_subaccount = self.serialize_subaccount(sub_account)
+        phone_number = data.get("phone_number", None)
         return Response(
             {
                 "success": True,
-                # "data": serialize_subaccount,
-            },
-            status=status.HTTP_200_OK,
+                "message": "Trial number add successfully.",
+                # "data": self.get_serializer(free_trail_number).data
+            }, status=status.HTTP_201_CREATED
         ) 
 
 
@@ -221,8 +152,9 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     @transaction.atomic
     def release(self, request, pk):
         object = self.get_object()
-        trial_client = self.get_trial_client()
-        trial_client.incoming_phone_numbers(object.provider_phone_sid).delete()
+
+        twilio_service = TwilioService()
+        twilio_service.release_number(object)
 
         object.status = PhoneNumberStatus.RELEASED
         object.released_at = timezone.now()
@@ -236,15 +168,14 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-
     # Sync Twilio Number---
     @action(detail=True, methods=["get"])
     @transaction.atomic
     def sync(self, request, pk):
         object = self.get_object()
-        client = self.get_client(object)
-        phone  = client.incoming_phone_numbers(object.provider_phone_sid).fetch()
-        phone_serializer = self.to_dict(phone)
+
+        twilio_service = TwilioService()
+        phone_serializer = twilio_service.sync(object)
         return Response(
             {
                 "success": True,
@@ -252,88 +183,33 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
             }, status=status.HTTP_200_OK
         )
 
-    
-    def serializer_tfv(self, record):
-        return {
-            "sid": record.sid,
-            "account_sid": record.account_sid,
-            "customer_profile_sid": record.customer_profile_sid,
-            "regulated_item_sid": record.regulated_item_sid,
-            "trust_product_sid": record.trust_product_sid,
-            "business_name": record.business_name,
-            "status": record.status,
-            "date_created": record.date_created,
-            "date_updated": record.date_updated,
-            "business_street_address": record.business_street_address,
-            "business_street_address2": record.business_street_address2,
-            "business_city": record.business_city,
-            "business_state_province_region": record.business_state_province_region,
-            "business_postal_code": record.business_postal_code,
-            "business_country": record.business_country,
-            "business_website": record.business_website,
-            "business_contact_first_name": record.business_contact_first_name,
-            "business_contact_last_name": record.business_contact_last_name,
-            "business_contact_email": record.business_contact_email,
-            "business_contact_phone": record.business_contact_phone,
-            "notification_email": record.notification_email,
-            "use_case_categories": record.use_case_categories,
-            "use_case_summary": record.use_case_summary,
-            "production_message_sample": record.production_message_sample,
-            "opt_in_image_urls": record.opt_in_image_urls,
-            "opt_in_type": record.opt_in_type,
-            "message_volume": record.message_volume,
-            "additional_information": record.additional_information,
-            "tollfree_phone_number_sid": record.tollfree_phone_number_sid,
-            "rejection_reason": record.rejection_reason,
-            "error_code": record.error_code,
-            "edit_expiration": record.edit_expiration,
-            "edit_allowed": record.edit_allowed,
-            "rejection_reasons": record.rejection_reasons,
-            "resource_links": record.resource_links,
-            "url": record.url,
-            "external_reference_id": record.external_reference_id,
+    # =========Only Twilio API=====================
+    # =============================================
 
-            # // New response fields for the 2026 update
-            "business_registration_number": record.business_registration_number,
-            "business_registration_authority": record.business_registration_authority,
-            "business_registration_country": record.business_registration_country,
-            "doing_business_as": record.doing_business_as,
-            "business_type": record.business_type,
-            # "opt_in_confirmation_sample": record.opt_in_confirmation_sample,
-            "help_message_sample": record.help_message_sample,
-            "privacy_policy_url": record.privacy_policy_url,
-            # "terms_and_condition_url": record.terms_and_condition_url,
-            "age_gated_content": record.age_gated_content,
-            "opt_in_keywords": record.opt_in_keywords,
-            
-            # // New response fields for CV Token update
-            "vetting_id": record.vetting_id,       
-            "vetting_provider": record.vetting_provider,
-            "vetting_id_expiration": record.vetting_id_expiration
-        }
-
-    @action(detail=True, methods=["get"], url_path="tfv-fetch")
-    def TFVRequestForIncommingNumber(self, request, pk):
+    # =============================================
+    # =========Only Twilio TFV API=================
+    @action(detail=True, methods=["get"], url_path="tfv-sync")
+    @transaction.atomic
+    def TFVRequestForIncommingNumberSync(self, request, pk):
         object = self.get_object()
-        client = self.get_client(object)
-        tfv_sid = request.data.get("tfv_sid")
+        tfv_sid = request.data.get("tfv_sid", None)
 
-        if tfv_sid:
-            tollfree_verifications = client.messaging.v1.tollfree_verifications(
-                tfv_sid
-            ).fetch()
-            data = self.serializer_tfv(tollfree_verifications)
-        else:
-            tollfree_verifications = client.messaging.v1.tollfree_verifications.list(
-                tollfree_phone_number_sid=object.provider_phone_sid, limit=20
-            )
-            data = []
-            for record in tollfree_verifications:
-                data.append(self.serializer_tfv(record))
+        twilio_service = TwilioService()
+        tfv_verification = twilio_service.sync_tfv_verification(object)
         return Response(
             {
                 "succcess": True,
-                "data": data
+                "data": tfv_verification
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="tfv")
+    def TFVRequestForIncommingNumber(self, request, pk):
+        object = self.get_object()
+        return Response(
+            {
+                "success": True,
+                "data": self.get_serializer(object).data
             }
         )
     
@@ -341,25 +217,7 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     def TFVRequestCreate(self, request, pk):
         object = self.get_object()
         client = self.get_client(object)
-        tollfree_verification = client.messaging.v1.tollfree_verifications.create(
-            customer_profile_sid="BUaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            business_name="Owl, Inc.",
-            business_website="http://www.example.com",
-            notification_email="support@example.com",
-            use_case_categories=["TWO_FACTOR_AUTHENTICATION", "MARKETING"],
-            use_case_summary="This number is used to send out promotional offers and coupons to the customers of Owl, Inc.",
-            production_message_sample="lorem ipsum",
-            opt_in_image_urls=[
-                "https://example.com/images/image1.jpg",
-                "https://example.com/images/image2.jpg",
-            ],
-            opt_in_type="VERBAL",
-            message_volume="10",
-            additional_information="privacy policy is geo-locked to NAMER region",
-            tollfree_phone_number_sid="PNaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            vetting_id="cv|1.0|mno|tfree|b344a16f-b435-4a39-bf91-df9b8e4e0a0d|E5eh-rOPHCr_lrgHDYEZP45FzuJSHS1fkFTmVPD8GQ4",
-            vetting_provider="CAMPAIGN_VERIFY",
-        )
+        
 
         print(tollfree_verification.sid)
         return Response(
@@ -422,7 +280,60 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
 
         }
         return render(request, "sms_consent2.html", context)
+    
+    # =========Only Twilio TFV API=================
+    # =============================================
+    
+    # All Available Trial Number---
+    @action(detail=False, methods=["get"])
+    def available(self, request):
+        queryset = self.get_queryset().filter(status=PhoneNumberStatus.ACTIVE, is_used=False)
+        return Response(
+            {
+                "success": True,
+                "count": len(queryset),
+                "results": self.get_serializer(queryset, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
+    # Sub Account Create in Twilio---
+    def serialize_subaccount(self, sub_account):
+        return {
+            "sid": sub_account.sid,
+            "friendly_name": sub_account.friendly_name,
+            "status": sub_account.status,
+            "owner_account_sid": sub_account.owner_account_sid,
+            # "date_created": sub_account.date_created,
+            "auth_token": sub_account.auth_token,
+        }
+    
+    @action(detail=False, methods=["post"], url_path="create-free-trail-account")
+    @transaction.atomic
+    def create_free_trail_account(self, request):
+        data = request.data
+        account_name = data.get("account_name", None)
+
+        # ACCOUNT_SID = os.getenv("ACCOUNT_SID")
+        # AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+        # client = Client(ACCOUNT_SID, AUTH_TOKEN)
+        # sub_account = client.api.accounts.create(
+        #     friendly_name=account_name
+        # )
+        # serialize_subaccount = self.serialize_subaccount(sub_account)
+        return Response(
+            {
+                "success": True,
+                # "data": serialize_subaccount,
+            },
+            status=status.HTTP_200_OK,
+        ) 
+
+
+    
+
+
+    
     # Update Twilio Number---
     @action(detail=True, methods=["post"], url_path="update-twilio-phone")
     def update_twilio_phone(self, request, pk):
@@ -516,8 +427,7 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
 
     def get_client(self, object: FreeTrailPhoneNumber):
         return Client(object.account_sid, object.account_auth_token)
-        # return Client(object.account_sid, object.account_auth_token)
-    
+
     def get_trial_client(self):
         return Client(self.FREE_TRAIL_ACCOUNT_SID, self.FREE_TRAIL_AUTH_TOKEN)
 

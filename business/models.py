@@ -233,7 +233,7 @@ class PhoneNumber(BaseModel):
     country = models.CharField(max_length=2, db_index=True, blank=True, null=True)
     region = models.CharField(max_length=100, blank=True, default="")
     
-    status = models.CharField(max_length=20, choices=PhoneNumberStatus.choices, default=PhoneNumberStatus.PENDING, db_index=True)
+    status = models.CharField(max_length=30, choices=PhoneNumberStatus.choices, default=PhoneNumberStatus.PENDING, db_index=True)
     is_primary = models.BooleanField(default=True)
     purchased_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)

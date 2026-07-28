@@ -14,8 +14,20 @@ import os
 from .models import FreeTrailPhoneNumber
 
 
+from example import toll_free_number_purchase_response
+from .helper import purchase_to_dict, TFV_to_dict
+from .choices import VerificationStatus
+from business.choices import PhoneNumberStatus
+from .models import TollFreeVerification
+from django.utils import timezone
 
 class TwilioService:
+    FREE_TRAIL_ACCOUNT_SID = os.getenv("FREE_TRAIL_ACCOUNT_SID")
+    FREE_TRAIL_AUTH_TOKEN = os.getenv("FREE_TRAIL_AUTH_TOKEN")
+
+    MASTER_ACCOUNT_SID = os.getenv("ACCOUNT_SID")
+    MASTER_AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+
     def __init__(self, organization=None):
         self.organization = organization
         self.client = self.master_client()
@@ -23,16 +35,12 @@ class TwilioService:
 
     # ---------------------------------------------------------------------
     # Client
-    def master_client(self):
-        ACCOUNT_SID = os.getenv("ACCOUNT_SID")
-        AUTH_TOKEN = os.getenv("AUTH_TOKEN")
-        client = Client(ACCOUNT_SID, AUTH_TOKEN)
+    def master_client(self) -> Client:
+        client = Client(self.MASTER_ACCOUNT_SID, self.MASTER_AUTH_TOKEN)
         return client
 
     def free_trail_client(self) -> Client:
-        FREE_TRAIL_ACCOUNT_SID = os.getenv("FREE_TRAIL_ACCOUNT_SID")
-        FREE_TRAIL_AUTH_TOKEN = os.getenv("FREE_TRAIL_AUTH_TOKEN")
-        client = Client(FREE_TRAIL_ACCOUNT_SID, FREE_TRAIL_AUTH_TOKEN)
+        client = Client(self.FREE_TRAIL_ACCOUNT_SID, self.FREE_TRAIL_AUTH_TOKEN)
         return client
 
     def organization_client(self) -> Client:
@@ -52,6 +60,57 @@ class TwilioService:
         else:
             raise Exception("Sub Account Not Found")
 
+    def get_object_client(self, object: FreeTrailPhoneNumber):
+        return Client(object.account_sid, object.account_auth_token)
+
+    def validate_master_credentials(self) -> bool:
+        try:
+            account = self.client.api.accounts(
+                settings.TWILIO_ACCOUNT_SID
+            ).fetch()
+            logger.info(
+                "Twilio master account validated successfully (%s)",
+                account.sid,
+            )
+            return True
+        except TwilioRestException as exc:
+            logger.exception("Twilio master credential validation failed.")
+
+            raise exc
+
+    def validate_client_credentials(self, client, object):
+        try:
+            account = client.api.accounts(
+                object.account_sid
+            ).fetch()
+            logger.info(
+                "Twilio master account validated successfully (%s)",
+                account.sid,
+            )
+            return True
+        except TwilioRestException as exc:
+            logger.exception("Twilio master credential validation failed.")
+
+    def validate_subaccount_credentials(self) -> bool:
+        provider = getattr(self.organization, "provider_account", None)
+        if provider is None:
+            raise ValueError("Organization has no ProviderAccount.")
+        client = self.subaccount_client()
+        try:
+            account = client.api.accounts(
+                provider.account_sid
+            ).fetch()
+            logger.info(
+                "Twilio subaccount validated successfully (%s)",
+                account.sid,
+            )
+            return True
+        except TwilioRestException as exc:
+            logger.exception(
+                "Twilio subaccount credential validation failed."
+            )
+            raise exc
+    
     # ---------------------------------------------------------------------
 
     # ---------------------------------------------------------------------
@@ -84,9 +143,10 @@ class TwilioService:
                 "limit": limit,
                 "sms_enabled": sms_enabled,
             }
-            if area_code:
-                params["area_code"] = area_code
-            numbers = resource.list(**params)
+            # if area_code:
+            #     params["area_code"] = area_code
+            # numbers = resource.list(**params)
+            numbers = resource.list(limit=limit, sms_enabled=True)
             return [
                 self.serialize_search_phone_number(number)
                 for number in numbers
@@ -148,37 +208,44 @@ class TwilioService:
 
     def save_free_trail_number(self, data):
         free_trail_phone_number, created = FreeTrailPhoneNumber.objects.update_or_create(
-        provider_phone_sid=data["sid"],
-        phone_number=data["phone_number"],
-        defaults={
-            "owner_account_sid": self.MASTER_ACCOUNT_SID,
-            "account_sid": self.FREE_TRAIL_ACCOUNT_SID,
-            "account_auth_token": self.FREE_TRAIL_AUTH_TOKEN,
-            "capabilities": data["capabilities"],
-            "metadata": data,
-            "status": PhoneNumberStatus.ACTIVE,
+            provider_phone_sid=data["sid"],
+            phone_number=data["phone_number"],
+            defaults={
+                "owner_account_sid": self.MASTER_ACCOUNT_SID,
+                "account_sid": data["sid"],
+                "account_auth_token": self.MASTER_AUTH_TOKEN,
+                "capabilities": data["capabilities"],
+                "metadata": data,
+                "status": PhoneNumberStatus.ACTIVE,
 
-            "purchased_at": data["date_created"],
-            "last_synced_at": data["date_updated"],
-            "is_used": False,
-            "webhook_url": data["sms_url"] or "",
-        },
-    )
+                "purchased_at": data["date_created"],
+                "last_synced_at": data["date_updated"],
+                "is_used": False,
+                "webhook_url": data["sms_url"] or "",
+            },
+        )
+        logger.info(
+            "Phone number synced successfully (%s)",
+            free_trail_phone_number.phone_number,
+        )
+        return free_trail_phone_number
 
     def purchase_free_trail_number(self, phone_number):
-        from .helper import purchase_to_dict
         try:
             client = self.free_trail_client()
         except:
             client = self.master_client()
 
-        payload = {"phone_number": phone_number,}
-        purchased = client.incoming_phone_numbers.create(**payload)
-        logger.info("Phone number purchased successfully (%s)", purchased.phone_number,)
-        serialize_phone_number = purchase_to_dict(purchased)
+        # payload = {"phone_number": phone_number,}
+        # purchased = client.incoming_phone_numbers.create(**payload)
+        # purchased = toll_free_number_purchase_response()
+        # logger.info("Phone number purchased successfully (%s)", purchased.phone_number,)
+        # serialize_phone_number = purchase_to_dict(purchased)
+        logger.info("Phone number purchased successfully (%s)", phone_number,)
+        serialize_phone_number = toll_free_number_purchase_response(phone_number)
 
         free_trail_number = self.save_free_trail_number(serialize_phone_number)
-        return serialize_phone_number
+        return free_trail_number
 
     @transaction.atomic
     def purchase_number(self, phone_number: str, user=None, sms_url: str | None = None, status_callback: str | None = None, voice_url: str | None = None,):
@@ -210,6 +277,305 @@ class TwilioService:
             raise Exception("Unable to purchase phone number.")
 
     # ---------------------------------------------------------------------
-    
+
+    # ---------------------------------------------------------------------
+    # Number Related Method
+    def release_number(self, object):
+        client = self.get_object_client(object)
+        self.validate_client_credentials(client, object)
+        try:
+            client.incoming_phone_numbers(object.provider_phone_sid).delete()
+            return True
+        except TwilioRestException:
+            logger.exception("Failed to release phone number.")
+            raise Exception("Failed to release phone number.")
+
+    def sync(self, object):
+        client = self.get_object_client(object)
+        self.validate_client_credentials(client, object)
+
+        phone  = client.incoming_phone_numbers(object.provider_phone_sid).fetch()
+        phone_serializer = purchase_to_dict(phone)
+        return phone_serializer
+
+    # ---------------------------------------------------------------------
+
+    # ---------------------------------------------------------------------
+    # Toll Free TFV Verification Related Method
+    def update_phone_number_status(self, phone_number, remote):
+        status = (remote.status or "").upper()
+        if status == "TWILIO_APPROVED":
+            phone_number.status = PhoneNumberStatus.ACTIVE
+        elif status == "TWILIO_REJECTED":
+            phone_number.status = PhoneNumberStatus.VERIFICATION_REJECTED
+        else:
+            phone_number = PhoneNumberStatus.VERIFICATION_PENDING
+        phone_number.last_synced_at = timezone.now()
+        phone_number.save(update_fields=["status", "last_synced_at"])
+        return phone_number
+
+    def update_tfv_model(self, phone_number, local_tfv, remote):
+        convert_dict = TFV_to_dict(remote)
+        status = (remote.status or "").upper()
+
+        # Twilio
+        local_tfv.customer_profile_sid = remote.customer_profile_sid
+        local_tfv.tollfree_phone_number_sid = remote.tollfree_phone_number_sid
+        local_tfv.verification_sid = remote.sid
+        local_tfv.external_reference_id = remote.external_reference_id
+
+        local_tfv.business_name = remote.business_name
+        local_tfv.doing_business_as = remote.doing_business_as or local_tfv.doing_business_as
+        local_tfv.business_website = remote.business_website or local_tfv.business_website
+        local_tfv.notification_email = remote.notification_email or local_tfv.notification_email
+
+        local_tfv.business_registration_number = remote.business_registration_number or local_tfv.business_registration_number
+        local_tfv.business_registration_authority = remote.business_registration_authority or local_tfv.business_registration_authority
+        local_tfv.business_registration_country = remote.business_registration_country or local_tfv.business_registration_country
+        local_tfv.business_registration_phone_number = remote.business_contact_phone or local_tfv.business_registration_phone_number
+        local_tfv.business_type = remote.business_type or local_tfv.business_type
+
+        local_tfv.use_case_categories = remote.use_case_categories or []
+        local_tfv.use_case_summary = remote.use_case_summary
+        local_tfv.production_message_sample = remote.production_message_sample
+        local_tfv.additional_information = remote.additional_information or local_tfv.additional_information
+        local_tfv.message_volume = int(
+            str(remote.message_volume or "0").replace(",", "")
+        )
+        local_tfv.opt_in_confirmation_message = (
+            getattr(
+                remote,
+                "opt_in_confirmation_message",
+                ""
+            )
+            or local_tfv.opt_in_confirmation_message
+        )
+
+        local_tfv.opt_in_type = remote.opt_in_type
+        local_tfv.opt_in_image_urls = remote.opt_in_image_urls or local_tfv.opt_in_image_urls
+        local_tfv.opt_in_keywords = remote.opt_in_keywords or local_tfv.opt_in_keywords
+
+        local_tfv.help_message_sample = remote.help_message_sample or local_tfv.help_message_sample
+        local_tfv.privacy_policy_url = remote.privacy_policy_url or local_tfv.privacy_policy_url
+        local_tfv.age_gated_content = remote.age_gated_content
+
+        local_tfv.verification_status = self.map_tfv_status(remote)
+        local_tfv.approved_at=(
+            remote.date_updated
+            if status == "TWILIO_APPROVED"
+            else None
+        )
+        local_tfv.rejected_at=(
+            remote.date_updated
+            if status == "TWILIO_REJECTED"
+            else None
+        )
+
+        local_tfv.rejection_reason=remote.rejection_reason or ""
+        local_tfv.rejection_reasons=(
+            "\n".join(remote.rejection_reasons)
+            if remote.rejection_reasons
+            else remote.rejection_reason or ""
+        )
+        local_tfv.rejection_code=remote.error_code or ""
+        local_tfv.last_synced_at = timezone.now()
+        local_tfv.submitted_at = remote.date_created
+        local_tfv.response_payload = convert_dict
+        local_tfv.is_verified = status == "TWILIO_APPROVED"
+        local_tfv.save()
+
+        self.update_phone_number_status(phone_number, remote)
+        return convert_dict
+
+    def map_tfv_status(self, remote) -> str:
+        status = (remote.status or "").upper()
+        status_map = {
+            "SUBMITTED": VerificationStatus.SUBMITTED,
+            "PENDING_REVIEW": VerificationStatus.IN_REVIEW,
+            "IN_REVIEW": VerificationStatus.IN_REVIEW,
+            "IN_PROGRESS": VerificationStatus.PENDING,
+            "TWILIO_APPROVED": VerificationStatus.TWILIO_APPROVED,
+            "CANCELED": VerificationStatus.CANCELED,
+        }
+        if status == "TWILIO_REJECTED":
+            return VerificationStatus.REJECTED if getattr(remote, "edit_allowed", False) else VerificationStatus.REJECTED_PERMANENT
+        return status_map.get(status, VerificationStatus.DRAFT)
+
+    def create_tfv_model(self, phone_number, remote):
+        try:
+            convert_dict = TFV_to_dict(remote)
+            status = (remote.status or "").upper()
+            tfv = TollFreeVerification.objects.create(
+                # Relations
+                free_trail_phone_number=phone_number,
+                organization=getattr(phone_number, "organization", None),
+                user=getattr(phone_number, "user", None),
+
+                # Twilio
+                customer_profile_sid=remote.customer_profile_sid,
+                tollfree_phone_number_sid=remote.tollfree_phone_number_sid,
+                verification_sid=remote.sid,
+                external_reference_id=remote.external_reference_id,
+
+                # Business Information
+                business_name=remote.business_name,
+                doing_business_as=remote.doing_business_as or "",
+                business_website=remote.business_website,
+                notification_email=remote.notification_email,
+                business_registration_number=remote.business_registration_number or "",
+                business_registration_authority=remote.business_registration_authority or "",
+                business_registration_country=remote.business_registration_country or "",
+                business_registration_phone_number=remote.business_contact_phone or "",
+                business_type=remote.business_type or "",
+
+                # Use Case
+                use_case_categories=remote.use_case_categories or [],
+                use_case_summary=remote.use_case_summary,
+                production_message_sample=remote.production_message_sample,
+                message_volume=int(str(remote.message_volume or "0").replace(",", "")),
+                additional_information=remote.additional_information or "",
+
+                # Opt In
+                opt_in_type=remote.opt_in_type,
+                opt_in_image_urls=remote.opt_in_image_urls or [],
+                opt_in_confirmation_message="",  # Twilio TFV API does not return this field
+                opt_in_keywords=remote.opt_in_keywords or [],
+
+                # Compliance
+                help_message_sample=remote.help_message_sample or "",
+                privacy_policy_url=remote.privacy_policy_url or "",
+                terms_and_conditions_url="",  # Not returned by Twilio TFV fetch
+                age_gated_content=remote.age_gated_content,
+
+                # Status
+                verification_status=self.map_tfv_status(remote),
+                is_verified=status == "TWILIO_APPROVED",
+
+                submitted_at=remote.date_created,
+                approved_at=(
+                    remote.date_updated
+                    if status == "TWILIO_APPROVED"
+                    else None
+                ),
+                rejected_at=(
+                    remote.date_updated
+                    if status == "TWILIO_REJECTED"
+                    else None
+                ),
+
+                rejection_reason=remote.rejection_reason or "",
+                rejection_reasons=(
+                    "\n".join(remote.rejection_reasons)
+                    if remote.rejection_reasons
+                    else remote.rejection_reason or ""
+                ),
+                rejection_code=remote.error_code or "",
+
+                # Raw API
+                request_payload={},
+                response_payload=convert_dict,
+                last_synced_at=timezone.now(),
+            )
+            return remote, tfv
+        except Exception as e:
+            logger.exception(e)
+            raise
+
+    def get_latest_ftv(self, phone_number, client):
+        data = []
+        approved, reviewed, latest, rejected = None, None, None, None
+        tfvs = client.messaging.v1.tollfree_verifications.list(
+            tollfree_phone_number_sid=phone_number.provider_phone_sid
+        )
+        if not tfvs:
+            return None, []
+        latest = max(
+            tfvs,
+            key=lambda x: x.date_created
+        )
+        for item in tfvs:
+            if item.status == "TWILIO_APPROVED":
+                approved = item
+                break
+            elif item.status in ["PENDING_REVIEW", "IN_REVIEW",]:
+                reviewed = item
+            elif item.status == "TWILIO_REJECTED":
+                rejected = item
+            else:
+                data.append(TFV_to_dict(item))
+        return (approved or reviewed or latest), data
+        # return (approved or reviewed or rejected or latest), data
+
+    def sync_tfv_verification(self, phone_number) -> FreeTrailPhoneNumber:
+        client = self.get_object_client(phone_number)
+        local_tfv = getattr(phone_number, "tfv_verification", None)
+        
+        if local_tfv and local_tfv.verification_sid:
+            try:
+                remote = client.messaging.v1.tollfree_verifications(
+                    local_tfv.verification_sid
+                ).fetch()
+                if remote.status == "TWILIO_APPROVED":
+                    return self.update_tfv_model(
+                        phone_number,
+                        local_tfv,
+                        remote,
+                    )
+
+                twilio_tfv, data = self.get_latest_ftv(
+                    phone_number,
+                    client,
+                )
+                if not twilio_tfv:
+                    return None
+                else:
+                    return self.update_tfv_model(
+                        phone_number,
+                        local_tfv,
+                        twilio_tfv,
+                    )
+                # convert_dict = self.update_tfv_model(phone_number, local_tfv, remote)
+                # return convert_dict
+            except Exception as e:
+                # raise Exception("TFV Object fetch failed.")
+                logger.exception(e)
+                raise
+        else:
+            twilio_tfv, data = self.get_latest_ftv(phone_number, client)
+            # if local_tfv: local_tfv.delete()
+            if not twilio_tfv: return None
+            else:
+                remote_tfv, local_tfv = self.create_tfv_model(phone_number, twilio_tfv)
+                # tfv_verification = twilio_tfv
+                
+                self.update_phone_number_status(phone_number, remote_tfv)
+                if remote_tfv.status in ["TWILIO_APPROVED", "PENDING_REVIEW", "TWILIO_REJECTED", "IN_REVIEW"]:
+                    return TFV_to_dict(remote_tfv)
+                else:
+                    return data
+
+    def submit_tfv_verification(self, phone_number):
+        client = self.get_object_client(phone_number)
+        tollfree_verification = client.messaging.v1.tollfree_verifications.create(
+            customer_profile_sid="BUaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            business_name="Owl, Inc.",
+            business_website="http://www.example.com",
+            notification_email="support@example.com",
+            use_case_categories=["TWO_FACTOR_AUTHENTICATION", "MARKETING"],
+            use_case_summary="This number is used to send out promotional offers and coupons to the customers of Owl, Inc.",
+            production_message_sample="lorem ipsum",
+            opt_in_image_urls=[
+                "https://example.com/images/image1.jpg",
+                "https://example.com/images/image2.jpg",
+            ],
+            opt_in_type="VERBAL",
+            message_volume="10",
+            additional_information="privacy policy is geo-locked to NAMER region",
+            tollfree_phone_number_sid="PNaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            vetting_id="cv|1.0|mno|tfree|b344a16f-b435-4a39-bf91-df9b8e4e0a0d|E5eh-rOPHCr_lrgHDYEZP45FzuJSHS1fkFTmVPD8GQ4",
+            vetting_provider="CAMPAIGN_VERIFY",
+        )
+        return phone_number
+    # ---------------------------------------------------------------------
 
 

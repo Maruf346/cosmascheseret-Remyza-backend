@@ -1,5 +1,5 @@
 from django.db import models
-from .choices import SettingValueType, NotificationType, NotificationPriority, FreeTrailNumberType
+from .choices import SettingValueType, NotificationType, NotificationPriority, FreeTrailNumberType, VerificationStatus, OptInType
 from common.models import BaseModel
 from django.utils import timezone
 from business.choices import PhoneNumberStatus
@@ -137,7 +137,7 @@ class FreeTrailPhoneNumber(BaseModel):
     webhook_secret = models.CharField(max_length=255, blank=True, default="")
 
     is_used = models.BooleanField(default=False)
-    status = models.CharField(max_length=20, choices=PhoneNumberStatus.choices, default=PhoneNumberStatus.PENDING, db_index=True)
+    status = models.CharField(max_length=30, choices=PhoneNumberStatus.choices, default=PhoneNumberStatus.PENDING, db_index=True)
     purchased_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(default=timezone.now)
@@ -150,25 +150,77 @@ class UserFreeTrailNumber(BaseModel):
     end_at = models.DateTimeField(blank=True, null=True)
     is_expired = models.BooleanField(default=False)
 
+class TollFreeVerification(models.Model):
+    # Relation
+    phone_number = models.OneToOneField("business.PhoneNumber", on_delete=models.CASCADE, related_name="tfv_verification", blank=True, null=True)
+    free_trail_phone_number = models.OneToOneField("FreeTrailPhoneNumber", on_delete=models.CASCADE, related_name="tfv_verification", blank=True, null=True)
+    organization = models.OneToOneField("business.Organization", on_delete=models.CASCADE, related_name="tfv_verifications", blank=True, null=True)
+    user = models.OneToOneField("accounts.User", on_delete=models.CASCADE, related_name="tfv_verifications", blank=True, null=True)
 
-class TwilioNumberVerification(BaseModel):
-    # customer_profile_sid
-    # business_name
-    # business_website
-    # notification_email
-    # use_case_categories=TWO_FACTOR_AUTHENTICATION, ACCOUNT_NOTIFICATIONS, CUSTOMER_CARE, CHARITY_NONPROFIT, DELIVERY_NOTIFICATIONS, FRAUD_ALERT_MESSAGING, EVENTS, HIGHER_EDUCATION, MARKETING, POLLING_AND_VOTING_NON_POLITICAL, POLITICAL_ELECTION_CAMPAIGNS, PUBLIC_SERVICE_ANNOUNCEMENT, SECURITY_ALERT
-    # use_case_summary
-    # production_message_sample
-    # opt_in_image_urls
-    # opt_in_type
-    # message_volume
-    # additional_information
-    # tollfree_phone_number_sid
-    # vetting_id
-    # vetting_provider
+    # Twilio
+    customer_profile_sid = models.CharField(max_length=64)
+    tollfree_phone_number_sid = models.CharField(max_length=64)
+    verification_sid = models.CharField(max_length=64, blank=True, help_text="Twilio TFV SID returned after submission.")
+    external_reference_id = models.CharField(max_length=255, blank=True, null=True)
 
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    # Business Information
+    business_name = models.CharField(max_length=255)
+    doing_business_as = models.CharField(max_length=255, blank=True)
+    business_website = models.URLField()
+    notification_email = models.EmailField()
+    business_registration_number = models.CharField(max_length=100, blank=True)
+    business_registration_authority = models.CharField(max_length=100, blank=True)
+    business_registration_country = models.CharField(max_length=10, blank=True)
+    business_registration_phone_number = models.CharField(max_length=30, blank=True)
+    business_type = models.CharField(max_length=100, blank=True)
+
+    # Use Case
+    use_case_categories = models.JSONField(default=list)
+    use_case_summary = models.TextField()
+    production_message_sample = models.TextField()
+    message_volume = models.PositiveIntegerField(default=0)
+    additional_information = models.TextField(blank=True)
+
+    # Opt In
+    opt_in_type = models.CharField(max_length=30, choices=OptInType.choices, default=OptInType.VERBAL)
+    opt_in_image_urls = models.JSONField(default=list, blank=True)
+    opt_in_confirmation_message = models.TextField(blank=True)
+    opt_in_keywords = models.JSONField(default=list, blank=True)
+
+    # Compliance
+    help_message_sample = models.TextField(blank=True)
+    privacy_policy_url = models.URLField(blank=True)
+    terms_and_conditions_url = models.URLField(blank=True)
+    age_gated_content = models.BooleanField(default=False)
+
+    # Status
+    verification_status = models.CharField(max_length=30, choices=VerificationStatus.choices, default=VerificationStatus.DRAFT)
+    is_verified = models.BooleanField(default=False)
+    submitted_at = models.DateTimeField(blank=True, null=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
+    rejected_at = models.DateTimeField(blank=True, null=True)
+    rejection_reason = models.TextField(blank=True)
+    rejection_reasons = models.TextField(blank=True)
+    rejection_code = models.CharField(max_length=100, blank=True)
+
+    # Store raw API data
+    request_payload = models.JSONField(default=dict, blank=True)
+    response_payload = models.JSONField(default=dict, blank=True)
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "tfv_verifications"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        if self.phone_number and self.phone_number.phone_number:
+            return f"{self.phone_number.phone_number} - {self.verification_status}"
+        elif self.free_trail_phone_number and self.free_trail_phone_number.phone_number:
+            return f"{self.free_trail_phone_number.phone_number} - {self.verification_status}"
+        else:
+            return f"{self.business_name} - {self.verification_status}"
 
 class TwilioWebhookLog(models.Model):
     method = models.CharField(max_length=10, blank=True, null=True)

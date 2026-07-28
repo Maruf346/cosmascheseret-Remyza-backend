@@ -38,5 +38,73 @@ def purchase_to_dict(phone):
         "date_updated": phone.date_updated,
     }
 
+def TFV_to_dict(record):
+    return {
+        "sid": record.sid,
+        "account_sid": record.account_sid,
+        "customer_profile_sid": record.customer_profile_sid,
+        "regulated_item_sid": record.regulated_item_sid,
+        "trust_product_sid": record.trust_product_sid,
+        "business_name": record.business_name,
+        "status": record.status,
+        "date_created": (
+            record.date_created.isoformat()
+            if record.date_created
+            else None
+        ),
 
+        "date_updated": (
+            record.date_updated.isoformat()
+            if record.date_updated
+            else None
+        ),
+        # "date_created": record.date_created,
+        # "date_updated": record.date_updated,
+        "business_street_address": record.business_street_address,
+        "business_street_address2": record.business_street_address2,
+        "business_city": record.business_city,
+        "business_state_province_region": record.business_state_province_region,
+        "business_postal_code": record.business_postal_code,
+        "business_country": record.business_country,
+        "business_website": record.business_website,
+        "business_contact_first_name": record.business_contact_first_name,
+        "business_contact_last_name": record.business_contact_last_name,
+        "business_contact_email": record.business_contact_email,
+        "business_contact_phone": record.business_contact_phone,
+        "notification_email": record.notification_email,
+        "use_case_categories": record.use_case_categories,
+        "use_case_summary": record.use_case_summary,
+        "production_message_sample": record.production_message_sample,
+        "opt_in_image_urls": record.opt_in_image_urls,
+        "opt_in_type": record.opt_in_type,
+        "message_volume": record.message_volume,
+        "additional_information": record.additional_information,
+        "tollfree_phone_number_sid": record.tollfree_phone_number_sid,
+        "rejection_reason": record.rejection_reason,
+        "error_code": record.error_code,
+        "edit_expiration": record.edit_expiration,
+        "edit_allowed": record.edit_allowed,
+        "rejection_reasons": record.rejection_reasons,
+        "resource_links": record.resource_links,
+        "url": record.url,
+        "external_reference_id": record.external_reference_id,
+
+        # // New response fields for the 2026 update
+        "business_registration_number": record.business_registration_number,
+        "business_registration_authority": record.business_registration_authority,
+        "business_registration_country": record.business_registration_country,
+        "doing_business_as": record.doing_business_as,
+        "business_type": record.business_type,
+        # "opt_in_confirmation_sample": record.opt_in_confirmation_sample,
+        "help_message_sample": record.help_message_sample,
+        "privacy_policy_url": record.privacy_policy_url,
+        # "terms_and_condition_url": record.terms_and_condition_url,
+        "age_gated_content": record.age_gated_content,
+        "opt_in_keywords": record.opt_in_keywords,
+        
+        # // New response fields for CV Token update
+        "vetting_id": record.vetting_id,       
+        "vetting_provider": record.vetting_provider,
+        "vetting_id_expiration": record.vetting_id_expiration
+    }
 

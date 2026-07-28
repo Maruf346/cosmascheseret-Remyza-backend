@@ -52,6 +52,8 @@ class PhoneNumberStatus(models.TextChoices):
     ACTIVE = "ACTIVE", "Active"
     INACTIVE = "INACTIVE", "Inactive"
     PENDING = "PENDING", "Pending"
+    VERIFICATION_PENDING = "VERIFICATION PENDING", "Verification Pending"
+    VERIFICATION_REJECTED = "VERIFICATION REJECTED", "Verification Rejected"
     RELEASED = "RELEASED", "Released"
     FAILED = "FAILED", "Failed"
 # ==========================================================

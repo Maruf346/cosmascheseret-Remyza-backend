@@ -74,3 +74,35 @@ class FreeTrailNumberType(models.TextChoices):
     LOCAL = "LOCAL"
     TOLL_FREE = "TOLL_FREE"
 
+class VerificationStatus(models.TextChoices):
+    DRAFT = "draft", "Draft"
+    SUBMITTED = "submitted", "Submitted"
+    PENDING = "pending", "Pending Review"
+    IN_REVIEW = "in_review", "In Review"
+    TWILIO_APPROVED = "twilio_approved", "Twilio Approved"
+    REJECTED = "rejected", "Rejected"
+    REJECTED_PERMANENT = "rejected_permanent", "Rejected Permanent"
+    CANCELED = "canceled", "Canceled"
+
+class OptInType(models.TextChoices):
+    VERBAL = "VERBAL", "Verbal"
+    WEB_FORM = "WEB_FORM", "Web Form"
+    PAPER_FORM = "PAPER_FORM", "Paper Form"
+    MOBILE_QR_CODE = "MOBILE_QR_CODE", "Mobile QR Code"
+    TEXT = "TEXT", "Text"
+    IVR = "IVR", "IVR"
+    UNKNOWN = "UNKNOWN", "Unknown"
+
+
+from django.db import models
+
+
+class BusinessType(models.TextChoices):
+    SOLE_PROPRIETOR = "SOLE_PROPRIETOR", "Sole Proprietor"
+    PARTNERSHIP = "PARTNERSHIP", "Partnership"
+    COOPERATIVE = "COOPERATIVE", "Cooperative"
+    NON_PROFIT = "NON_PROFIT", "Non-Profit"
+    PRIVATE_PROFIT = "PRIVATE_PROFIT", "Private Profit"
+    PUBLIC_PROFIT = "PUBLIC_PROFIT", "Public Profit"
+    GOVERNMENT = "GOVERNMENT", "Government"
+
