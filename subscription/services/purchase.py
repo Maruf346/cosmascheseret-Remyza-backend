@@ -32,6 +32,13 @@ class SubscriptionValidationService:
         return False
 
     @classmethod
+    def get_active_free_trail_subscription(cls, user):
+        now = timezone.now()
+        return UserSubscription.objects.select_related("plan").filter(
+            user=user, plan__plan_type=PlanType.FREE_TRAIL, status=SubscriptionStatus.ACTIVE, start_date__lte=now, expires_at__gte=now
+        ).first()
+
+    @classmethod
     def has_active_subscription_with_free_trial(cls, user):
         get_active_subscription = cls.get_active_subscription(user)
         return get_active_subscription is not None

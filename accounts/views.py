@@ -131,6 +131,10 @@ class CustomTokenVerifyView(TokenVerifyView):
 
 from subscription.services.purchase import SubscriptionValidationService
 from subscription.serializers import UserSubscriptionSerializer
+from core.models import FreeTrailPhoneNumber, UserFreeTrailNumber, PhoneNumberStatus
+from django.db.models import Min
+from core.model_serializer import UserFreeTrailNumberSerializer
+
 class CurrentUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -195,3 +199,80 @@ class CurrentUserAPIView(APIView):
             status=status.HTTP_200_OK,
         )
 
+class ClaimFreeTrailNumber(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_next_free_trial_number(self):
+        queryset = FreeTrailPhoneNumber.objects.select_for_update(skip_locked=True).filter(
+            is_used=False,
+            status=PhoneNumberStatus.ACTIVE,
+        )
+        
+
+        number = queryset.first()
+        if number:
+            return number
+        else:
+            queryset = FreeTrailPhoneNumber.objects.select_for_update(skip_locked=True).filter(
+                is_used=True,
+                status=PhoneNumberStatus.ACTIVE,
+            )
+            if not queryset.exists():
+                return None
+
+            min_usage = queryset.aggregate(
+                min_usage=Min("usages_count")
+            )["min_usage"]
+            return queryset.filter(
+                usages_count=min_usage
+            ).order_by("created_at").first()
+
+    def update_after_number_assign(self, selected_number):
+        selected_number.is_used = True
+        selected_number.usages_count += 1
+        selected_number.save(
+            update_fields=["is_used", "usages_count",]
+        )
+        return selected_number
+
+    def get(self, request, *args, **kwargs):
+        if UserFreeTrailNumber.objects.filter(user=self.request.user).exists():
+            return Response(
+                {
+                    "success": False,
+                    "message": "Free Trail number already assign."
+                }, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        selected_number = self.get_next_free_trial_number()
+        if not selected_number:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No free trial number available."
+                }, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        subscription = SubscriptionValidationService.get_active_free_trail_subscription(self.request.user)
+        if not subscription:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active free trial subscription found."
+                }, status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user_trail_number = UserFreeTrailNumber.objects.create(
+            user=self.request.user,
+            free_trail=selected_number,
+            trail_number=selected_number.phone_number,
+            end_at = subscription.expires_at
+        )
+        self.update_after_number_assign(selected_number)
+        return Response(
+            {
+                "success": True,
+                "message": "",
+                "data": UserFreeTrailNumberSerializer(user_trail_number).data
+            }
+        )

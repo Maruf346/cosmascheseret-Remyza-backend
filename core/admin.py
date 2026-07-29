@@ -79,7 +79,7 @@ class TwilioConfigurationAdmin(admin.ModelAdmin):
 
 @admin.register(FreeTrailPhoneNumber)
 class FreeTrailPhoneNumberAdmin(admin.ModelAdmin):
-    list_display = ("id", "phone_number", "number_type", "account_sid", "is_used", "status", "purchased_at")
+    list_display = ("id", "phone_number", "number_type", "account_sid", "is_used", "usages_count", "status", "purchased_at")
     list_filter = ("number_type", "status", "is_used")
     search_fields = ("phone_number", "provider_phone_sid", "account_sid")
     readonly_fields = ("purchased_at", "released_at", "last_synced_at", "created_at", "updated_at")
@@ -90,11 +90,11 @@ class FreeTrailPhoneNumberAdmin(admin.ModelAdmin):
 
 @admin.register(UserFreeTrailNumber)
 class UserFreeTrailNumberAdmin(admin.ModelAdmin):
-    list_display = ("id", "organization", "free_trail", "trail_number", "start_at", "end_at", "is_expired")
+    list_display = ("id", "user", "free_trail", "trail_number", "start_at", "end_at", "is_expired")
     list_filter = ("is_expired",)
-    search_fields = ("organization__name", "trail_number")
-    autocomplete_fields = ("organization", "free_trail")
-    list_select_related = ("organization", "free_trail")
+    search_fields = ("user__name", "trail_number")
+    autocomplete_fields = ("user", "free_trail")
+    list_select_related = ("user", "free_trail")
     readonly_fields = ("created_at", "updated_at")
     ordering = ("-start_at",)
     date_hierarchy = "start_at"
@@ -103,7 +103,7 @@ class UserFreeTrailNumberAdmin(admin.ModelAdmin):
 
 @admin.register(TollFreeVerification)
 class TollFreeVerificationAdmin(admin.ModelAdmin):
-    list_display = ("id", "phone_number", "organization", "business_name", "verification_status", "is_verified", "submitted_at", "approved_at")
+    list_display = ("id", "phone_number", "user", "organization", "business_name", "verification_status", "is_verified", "submitted_at", "approved_at")
     list_filter = ("verification_status", "is_verified", "opt_in_type", "age_gated_content")
     search_fields = ("business_name", "verification_sid", "customer_profile_sid", "notification_email")
     autocomplete_fields = ("phone_number", "free_trail_phone_number", "organization", "user")

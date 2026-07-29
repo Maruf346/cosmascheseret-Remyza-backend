@@ -19,4 +19,5 @@ urlpatterns = [
     path("me/onboarding-status/", UserBusinessOnboardingAPIView.as_view(), name="onboarding-status"),
 
     path("me/", include(router.urls)),
+    
 ]

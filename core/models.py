@@ -140,13 +140,14 @@ class FreeTrailPhoneNumber(BaseModel):
     webhook_secret = models.CharField(max_length=255, blank=True, default="")
 
     is_used = models.BooleanField(default=False)
+    usages_count = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=30, choices=PhoneNumberStatus.choices, default=PhoneNumberStatus.PENDING, db_index=True)
     purchased_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(default=timezone.now)
 
 class UserFreeTrailNumber(BaseModel):
-    organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="trail_phone_numbers", blank=True, null=True)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="trail_phone_numbers", blank=True, null=True)
     free_trail = models.ForeignKey(FreeTrailPhoneNumber, on_delete=models.SET_NULL, blank=True, null=True)
     trail_number = models.CharField(max_length=20, blank=True, null=True)
     start_at = models.DateTimeField(default=timezone.now)

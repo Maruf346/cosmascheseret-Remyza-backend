@@ -3,9 +3,11 @@ from .views import (
     ClientSendOTPAPIView,
     ClientVerifyOTPAPIView,
     AdminLoginAPIView,
-    CurrentUserAPIView,
     CustomTokenRefreshView,
     CustomTokenVerifyView,
+    
+    CurrentUserAPIView,
+    ClaimFreeTrailNumber,
 )
 
 urlpatterns = [
@@ -16,4 +18,5 @@ urlpatterns = [
     path("auth/token/verify/", CustomTokenVerifyView.as_view(), name="token-verify"),
     
     path("me/", CurrentUserAPIView.as_view(), name="user-info"),
+    path("me/cliam-free-trail-number/", ClaimFreeTrailNumber.as_view(), name="claim-user-free-trail"),
 ]
