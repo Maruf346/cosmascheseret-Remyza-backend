@@ -303,11 +303,15 @@ class TwilioService:
     # ---------------------------------------------------------------------
     # Toll Free TFV Verification Related Method
     def update_phone_number_status(self, phone_number, remote):
+        print("phone_number: ", phone_number)
         status = (remote.status or "").upper()
+        print("status: ", status)
         if status == "TWILIO_APPROVED":
             phone_number.status = PhoneNumberStatus.ACTIVE
         elif status == "TWILIO_REJECTED":
             phone_number.status = PhoneNumberStatus.VERIFICATION_REJECTED
+        elif status == "IN_REVIEW":
+            phone_number.status = PhoneNumberStatus.VERIFICATION_REVIEW
         else:
             phone_number = PhoneNumberStatus.VERIFICATION_PENDING
         phone_number.last_synced_at = timezone.now()
@@ -554,28 +558,19 @@ class TwilioService:
                 else:
                     return data
 
-    def submit_tfv_verification(self, phone_number):
-        client = self.get_object_client(phone_number)
-        tollfree_verification = client.messaging.v1.tollfree_verifications.create(
-            customer_profile_sid="BUaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            business_name="Owl, Inc.",
-            business_website="http://www.example.com",
-            notification_email="support@example.com",
-            use_case_categories=["TWO_FACTOR_AUTHENTICATION", "MARKETING"],
-            use_case_summary="This number is used to send out promotional offers and coupons to the customers of Owl, Inc.",
-            production_message_sample="lorem ipsum",
-            opt_in_image_urls=[
-                "https://example.com/images/image1.jpg",
-                "https://example.com/images/image2.jpg",
-            ],
-            opt_in_type="VERBAL",
-            message_volume="10",
-            additional_information="privacy policy is geo-locked to NAMER region",
-            tollfree_phone_number_sid="PNaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            vetting_id="cv|1.0|mno|tfree|b344a16f-b435-4a39-bf91-df9b8e4e0a0d|E5eh-rOPHCr_lrgHDYEZP45FzuJSHS1fkFTmVPD8GQ4",
-            vetting_provider="CAMPAIGN_VERIFY",
-        )
-        return phone_number
+    def submit_tfv_verification(self, phone_number, payload, client):
+        try:
+            tollfree_verification = (
+                client.messaging.v1.tollfree_verifications.create(
+                    **payload
+                )
+            )
+            self.create_tfv_model(phone_number, tollfree_verification)
+            return tollfree_verification
+        except TwilioRestException as exc:
+            raise Exception(
+                f"Twilio TFV Submit Failed: {exc.msg}"
+            )
     # ---------------------------------------------------------------------
 
 

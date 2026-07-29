@@ -39,7 +39,9 @@ from .models import (
 )
 
 from core.utils.viewsets import OwnReadOnlyModelViewSet
-from .serializers import FreeTrailPhoneNumberSerializer, SearchTrialNumberSerializer, SendSMSSerializer
+from .serializers import (
+    FreeTrailPhoneNumberSerializer, SearchTrialNumberSerializer, SendSMSSerializer, TollFreeVerificationSubmitSerializer, TollFreeVerificationSerializer
+)
 from .models import TwilioWebhookLog
 from twilio.rest import Client
 import os
@@ -173,7 +175,6 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     @transaction.atomic
     def sync(self, request, pk):
         object = self.get_object()
-
         twilio_service = TwilioService()
         phone_serializer = twilio_service.sync(object)
         return Response(
@@ -206,40 +207,72 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     @action(detail=True, methods=["get"], url_path="tfv")
     def TFVRequestForIncommingNumber(self, request, pk):
         object = self.get_object()
+        local_tfv = getattr(object, "tfv_verification", None)
+        if local_tfv:
+            return Response(
+                {
+                    "success": True,
+                    "data": TollFreeVerificationSerializer(local_tfv).data
+                }
+            )
         return Response(
             {
-                "success": True,
-                "data": self.get_serializer(object).data
+                "success": False,
+                "data": "No TFV verification submitted yet."
             }
         )
     
-    @TFVRequestForIncommingNumber.mapping.post
-    def TFVRequestCreate(self, request, pk):
-        object = self.get_object()
-        client = self.get_client(object)
-        
+    @action(detail=True, methods=["post"], url_path="tfv/submit")
+    def TFVRequestSubmit(self, request, pk):
+        try:
+            object = self.get_object()
+            client = self.get_client(object)
 
-        print(tollfree_verification.sid)
-        return Response(
-            {
-                "succcess": True,
-                "data": "tollfree_verifications"
-            }
-        )
+            twilio_service = TwilioService()
+            selected, data = twilio_service.get_latest_ftv(object, client)
+            if selected:
+                return Response(
+                    {
+                        "succcess": False,
+                        "message": f"Already have {selected.status} TFV Submitted."
+                    }
+                )
 
-    @TFVRequestForIncommingNumber.mapping.patch
+            serializer = TollFreeVerificationSubmitSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            payload = serializer.get_payload(object)
+            twilio_service.submit_tfv_verification(object, payload, client)
+            return Response(
+                {
+                    "succcess": True,
+                    "data": payload
+                }, status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "succcess": False,
+                    "data": str(e)
+                }, status=status.HTTP_200_OK
+            )
+
+    @action(detail=True, methods=["patch"], url_path="tfv/re-submit")
     def TFVRequestReSubmit(self, request, pk):
         object = self.get_object()
         client = self.get_client(object)
+        tfv_verification = getattr(object, "tfv_verification", None)
 
         tfv_sid = request.data.get("tfv_sid")
-        print("not tfv_sid: ", not tfv_sid)
         if not tfv_sid:
             raise ValidationError("TFV SID Must be set")
+        elif not tfv_verification or tfv_sid != tfv_verification.verification_sid:
+            raise ValidationError("Worng SID")
         else:
-            tollfree_verifications = client.messages.v1.tollfree_verifications(
+            # twilio_service = TwilioService()
+            # selected, data = twilio_service.get_latest_ftv(object, client)
+            tollfree_verifications = client.messaging.v1.tollfree_verifications(
                 tfv_sid
-            )
+            ).fetch()
             # if tollfree_verifications.fetch().status != 
             # tollfree_verifications = client.messaging.v1.tollfree_verifications(
             #     tfv_sid
@@ -258,13 +291,10 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
             #     terms_and_conditions_url="https://trychesera.com/terms"
             # )
             print("tollfree_verifications sid: ", tollfree_verifications.sid)
-            data = self.serializer_tfv(tollfree_verifications)
-            
-
             return Response(
                 {
                     "succcess": True,
-                    "data": data
+                    "data": TFV_to_dict(tollfree_verifications)
                 }
             )
     
@@ -283,20 +313,9 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     
     # =========Only Twilio TFV API=================
     # =============================================
-    
-    # All Available Trial Number---
-    @action(detail=False, methods=["get"])
-    def available(self, request):
-        queryset = self.get_queryset().filter(status=PhoneNumberStatus.ACTIVE, is_used=False)
-        return Response(
-            {
-                "success": True,
-                "count": len(queryset),
-                "results": self.get_serializer(queryset, many=True).data,
-            },
-            status=status.HTTP_200_OK,
-        )
 
+    # =============================================
+    # ======Only Twilio Sub-Account API============
     # Sub Account Create in Twilio---
     def serialize_subaccount(self, sub_account):
         return {
@@ -328,11 +347,23 @@ class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
             },
             status=status.HTTP_200_OK,
         ) 
-
-
     
-
-
+    # ======Only Twilio Sub-Account API============
+    # =============================================
+    
+    
+    # All Available Trial Number---
+    @action(detail=False, methods=["get"])
+    def available(self, request):
+        queryset = self.get_queryset().filter(status=PhoneNumberStatus.ACTIVE, is_used=False)
+        return Response(
+            {
+                "success": True,
+                "count": len(queryset),
+                "results": self.get_serializer(queryset, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
     
     # Update Twilio Number---
     @action(detail=True, methods=["post"], url_path="update-twilio-phone")

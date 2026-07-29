@@ -1,5 +1,8 @@
 from django.db import models
-from .choices import SettingValueType, NotificationType, NotificationPriority, FreeTrailNumberType, VerificationStatus, OptInType
+from .choices import (
+    SettingValueType, NotificationType, NotificationPriority, FreeTrailNumberType,
+    VerificationStatus, OptInType, BusinessTypeChoice, BusinessRegistrationAuthority
+)
 from common.models import BaseModel
 from django.utils import timezone
 from business.choices import PhoneNumberStatus
@@ -124,7 +127,7 @@ class TwilioConfiguration(BaseModel):
 
 class FreeTrailPhoneNumber(BaseModel):
     owner_account_sid = models.CharField(max_length=64, blank=True, null=True)
-    account_sid = models.CharField(max_length=64, unique=True, db_index=True)
+    account_sid = models.CharField(max_length=64, db_index=True)
     account_auth_token = models.CharField(max_length=255, blank=True, null=True)
     
     number_type = models.CharField(max_length=20, choices=FreeTrailNumberType.choices, default=FreeTrailNumberType.TOLL_FREE)
@@ -170,9 +173,10 @@ class TollFreeVerification(models.Model):
     notification_email = models.EmailField()
     business_registration_number = models.CharField(max_length=100, blank=True)
     business_registration_authority = models.CharField(max_length=100, blank=True)
+    business_registration_authority = models.CharField(max_length=30, choices=BusinessRegistrationAuthority.choices, blank=True,)
     business_registration_country = models.CharField(max_length=10, blank=True)
     business_registration_phone_number = models.CharField(max_length=30, blank=True)
-    business_type = models.CharField(max_length=100, blank=True)
+    business_type = models.CharField(max_length=100, blank=True, choices=BusinessTypeChoice.choices)
 
     # Use Case
     use_case_categories = models.JSONField(default=list)

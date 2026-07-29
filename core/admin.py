@@ -82,7 +82,7 @@ class FreeTrailPhoneNumberAdmin(admin.ModelAdmin):
     list_display = ("id", "phone_number", "number_type", "account_sid", "is_used", "status", "purchased_at")
     list_filter = ("number_type", "status", "is_used")
     search_fields = ("phone_number", "provider_phone_sid", "account_sid")
-    readonly_fields = ("provider_phone_sid", "purchased_at", "released_at", "last_synced_at", "created_at", "updated_at")
+    readonly_fields = ("purchased_at", "released_at", "last_synced_at", "created_at", "updated_at")
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
     list_per_page = 25
