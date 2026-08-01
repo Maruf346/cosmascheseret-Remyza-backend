@@ -22,6 +22,7 @@ class SubscriptionStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
     EXPIRED = "expired", "Expired"
     SUSPENDED = "suspended", "Suspended"
+    CLOSE = "close", "Close"
 
 class PaymentProvider(models.TextChoices):
     STRIPE = "stripe", "Stripe"
@@ -51,6 +52,7 @@ class PurchasePlatform(models.TextChoices):
     APP_STORE = "app_store", "App Store"
 
 class BillingCycle(models.TextChoices):
+    DAY = "day", "Day"
     MONTHLY = "monthly", "Monthly"
     YEARLY = "yearly", "Yearly"
     LIFETIME = "lifetime", "Lifetime"

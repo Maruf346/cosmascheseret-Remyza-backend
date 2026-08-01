@@ -153,13 +153,14 @@ class UserFreeTrailNumber(BaseModel):
     start_at = models.DateTimeField(default=timezone.now)
     end_at = models.DateTimeField(blank=True, null=True)
     is_expired = models.BooleanField(default=False)
+    is_released = models.BooleanField(default=False)
 
 class TollFreeVerification(models.Model):
     # Relation
     phone_number = models.OneToOneField("business.PhoneNumber", on_delete=models.CASCADE, related_name="tfv_verification", blank=True, null=True)
     free_trail_phone_number = models.OneToOneField("FreeTrailPhoneNumber", on_delete=models.CASCADE, related_name="tfv_verification", blank=True, null=True)
     organization = models.OneToOneField("business.Organization", on_delete=models.CASCADE, related_name="tfv_verifications", blank=True, null=True)
-    user = models.OneToOneField("accounts.User", on_delete=models.CASCADE, related_name="tfv_verifications", blank=True, null=True)
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="tfv_verifications", blank=True, null=True)
 
     # Twilio
     customer_profile_sid = models.CharField(max_length=64)

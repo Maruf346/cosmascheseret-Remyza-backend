@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.db import models
 from common.models import BaseModel
 from .choices import (
@@ -44,6 +45,30 @@ class UserSubscription(BaseModel):
     next_billing_date = models.DateTimeField(null=True, blank=True)
     auto_renew = models.BooleanField(default=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def is_free_trial(self):
+        return self.plan.plan_type == PlanType.FREE_TRAIL and self.status == SubscriptionStatus.ACTIVE
+
+    @property
+    def is_active(self):
+        return self.status == SubscriptionStatus.ACTIVE and (self.expires_at is None or self.expires_at > timezone.now())
+
+    def release_free_trial(self):
+        if self.plan.plan_type == PlanType.FREE_TRAIL:
+            self.status = SubscriptionStatus.CLOSE
+            self.save(update_fields=["status"])
+
+            from core.models import UserFreeTrailNumber
+            user_free_trail = UserFreeTrailNumber.objects.filter(user=self.user).first()
+            if user_free_trail:
+                free_trail_number = user_free_trail.free_trail
+                free_trail_number.is_used = False
+                free_trail_number.save(update_fields=["is_used"])
+                user_free_trail.is_released = True
+                user_free_trail.save(update_fields=["is_released"])
+
+
 
 class Payment(BaseModel):
     subscription = models.ForeignKey(UserSubscription, on_delete=models.CASCADE, related_name="payments")

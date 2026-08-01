@@ -1,13 +1,16 @@
 from rest_framework import status
+from rest_framework import response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.viewsets import GenericViewSet
 from rest_framework_simplejwt.views import (
     TokenRefreshView,
     TokenVerifyView,
 )
 from .choices import OTPPurpose
 from .models import OTPVerification, User
+from business.models import PhoneNumber
 from .serializers import (
     AdminLoginSerializer,
     ClientSendOTPSerializer,
@@ -15,6 +18,7 @@ from .serializers import (
     CurrentUserSerializer,
 )
 from django.db import transaction
+
 
 
 class ClientSendOTPAPIView(APIView):
@@ -151,18 +155,33 @@ class CurrentUserAPIView(APIView):
         user = self.get_user(request)
         serializer = CurrentUserSerializer(user, context={"request": request})
 
-        has_active_subscription = SubscriptionValidationService.has_active_subscription_with_free_trial(user)
-        active_subscription = SubscriptionValidationService.get_active_subscription(user)
+        active_subscription = SubscriptionValidationService.get_current_subscription(user)
 
+        free_trial = SubscriptionValidationService.get_free_trail_subscription(user)
+        free_trail_claimed = SubscriptionValidationService.has_free_trail_claimed(user)
+        
         response = {
             "user": serializer.data,
-            "has_active_subscription": has_active_subscription,
+            "has_active_subscription": True if active_subscription else False,
+
+            "free_trail_claimed": free_trail_claimed,
+            "free_trial_session": free_trial.status if free_trial else None,
         }
 
-        if has_active_subscription:
+        if active_subscription:
             response["plan_type"] = active_subscription.plan.plan_type,
             response["expires_at"] = active_subscription.expires_at,
             response["active_subscription"] = UserSubscriptionSerializer(active_subscription).data
+
+        if active_subscription and active_subscription.is_free_trial:
+            user_free_trial_number = UserFreeTrailNumber.objects.filter(user=user).first()
+            if user_free_trial_number:
+                response["free_trial_number"] = UserFreeTrailNumberSerializer(user_free_trial_number).data
+
+        your_business_number = None
+        if hasattr(user, "organization") and user.organization.phone_numbers.exists():
+            your_business_number = user.organization.phone_numbers.first()
+
 
         return Response(
             {
@@ -269,6 +288,8 @@ class ClaimFreeTrailNumber(APIView):
             end_at = subscription.expires_at
         )
         self.update_after_number_assign(selected_number)
+
+
         return Response(
             {
                 "success": True,
@@ -276,3 +297,164 @@ class ClaimFreeTrailNumber(APIView):
                 "data": UserFreeTrailNumberSerializer(user_trail_number).data
             }
         )
+
+class CurrentUserPlanAndProgressAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def add_progress(self, title, completed):
+        weight = int(100 / self.progress["total_steps"])
+        if completed:
+            self.progress["completed_steps"] += 1
+
+        self.progress["steps"].append({
+            "title": title,
+            "completed": completed,
+            "percentage": weight,
+        })
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.progress = {
+            "total_steps": 5,
+            "completed_steps": 0,
+            "percentage": 0,
+            "steps": []
+        }
+        self.response = {}
+
+    def get_active_subscription(self, user):
+        return SubscriptionValidationService.get_paid_active_subscription(user)
+    
+    def process_subscription(self, subscription):
+        self.response.update({
+            "plan_type": subscription.plan.plan_type,
+            "expires_at": subscription.expires_at,
+            "active_subscription": UserSubscriptionSerializer(subscription).data,
+        })
+        self.add_progress(
+            "Subscription Activated",
+            True
+        )
+
+    def process_organization(self, user):
+        self.organization = getattr(user, "organization", None)
+        if self.organization:
+            self.response["organization"] = {
+                "id": self.organization.id,
+                "name": self.organization.name,
+                "phone_numbers_count": self.organization.phone_numbers.count(),
+            }
+        else:
+            self.response["organization"] = None
+
+        self.add_progress(
+            "Organization Created",
+            self.organization is not None,
+        )
+        return self.organization
+
+    def process_provider_account(self, user):
+        self.provider_account = getattr(user, "provider_account", None)
+        if self.provider_account:
+            self.response["provider_account"] = {
+                "id": self.provider_account.id,
+                "name": self.provider_account.name,
+                "phone_numbers_count": self.provider_account.phone_numbers.count(),
+            }
+        else:
+            self.response["provider_account"] = None
+
+        self.add_progress(
+            "Provider Connected",
+            self.provider_account is not None,
+        )
+        return self.provider_account
+
+    def process_phone_numbers(self):
+        self.phone_numbers = PhoneNumber.objects.none()
+
+        if self.organization and self.provider_account:
+            self.phone_numbers = PhoneNumber.objects.filter(
+                organization=self.organization,
+                provider_account=self.provider_account,
+            ).prefetch_related("tfv_verification")
+        self.response["phone_numbers"] = [
+            {
+                "id": phone.id,
+                "phone_number": phone.phone_number,
+                "status": phone.status,
+            }
+            for phone in self.phone_numbers
+        ]
+
+        self.add_progress(
+            "Phone Number Purchased",
+            self.phone_numbers.exists(),
+        )
+        return self.phone_numbers
+
+    def process_tfv(self):
+        tfv = None
+
+        if self.phone_numbers.exists():
+            tfv = getattr(
+                self.phone_numbers.first(),
+                "tfv_verification",
+                None,
+            )
+
+        if tfv:
+            self.response["tfv_verification"] = {
+                "id": tfv.id,
+                "customer_profile_sid": tfv.customer_profile_sid,
+                "status": tfv.status,
+                "is_expired": tfv.is_expired,
+                "is_released": tfv.is_released,
+            }
+
+        else:
+            self.response["tfv_verification"] = None
+
+        # completed = bool(tfv and tfv.is_verified == "APPROVED")
+        completed = bool(tfv and tfv.is_verified == True)
+        self.add_progress(
+            "TFV Approved",
+            completed,
+        )
+
+    def finalize_progress(self):
+        self.progress["percentage"] = int(
+            self.progress["completed_steps"] * 100
+            / self.progress["total_steps"]
+        )
+
+        self.response["progress"] = self.progress
+
+    def get(self, request):
+
+        subscription = self.get_active_subscription(request.user)
+
+        if not subscription:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No active subscription found.",
+                    "data": {},
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        self.process_subscription(subscription)
+        self.process_organization(request.user)
+        self.process_provider_account(request.user)
+        self.process_phone_numbers()
+        self.process_tfv()
+        self.finalize_progress()
+
+        return Response({
+            "success": True,
+            "message": "User plan and progress retrieved successfully.",
+            "data": self.response,
+        })
+
+

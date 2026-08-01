@@ -17,11 +17,25 @@ from subscription.choices import (
 from ..choices import PlanType
 
 class SubscriptionValidationService:
+    @classmethod
+    def get_paid_active_subscription(cls, user):
+        now = timezone.now()
+        return UserSubscription.objects.select_related("plan").filter(
+            user=user, plan__plan_type=PlanType.PAID, status=SubscriptionStatus.ACTIVE, start_date__lte=now, expires_at__gte=now
+        ).first()
+
+    @classmethod
+    def get_current_subscription(cls, user):
+        now = timezone.now()
+        return UserSubscription.objects.select_related("plan").filter(
+            user=user, status=SubscriptionStatus.ACTIVE, start_date__lte=now, expires_at__gte=now
+        ).first()
+
     @staticmethod
     def get_active_subscription(user):
         now = timezone.now()
         return UserSubscription.objects.select_related("plan").filter(
-            user=user, status=SubscriptionStatus.ACTIVE, start_date__lte=now, expires_at__gte=now
+            user=user, plan__plan_type=PlanType.PAID, status=SubscriptionStatus.ACTIVE, start_date__lte=now, expires_at__gte=now
         ).first()
 
     @classmethod
@@ -40,8 +54,21 @@ class SubscriptionValidationService:
 
     @classmethod
     def has_active_subscription_with_free_trial(cls, user):
-        get_active_subscription = cls.get_active_subscription(user)
+        get_active_subscription = cls.get_active_free_trail_subscription(user)
         return get_active_subscription is not None
+    
+
+    @classmethod
+    def get_free_trail_subscription(cls, user):
+        return UserSubscription.objects.select_related("plan").filter(
+            user=user, plan__plan_type=PlanType.FREE_TRAIL
+        ).first()
+
+    @classmethod
+    def has_free_trail_claimed(cls, user):
+        return UserSubscription.objects.filter(user=user, plan__plan_type=PlanType.FREE_TRAIL).exists()
+
+
 
 class SubscriptionPurchaseService:
     @classmethod

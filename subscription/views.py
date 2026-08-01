@@ -37,7 +37,7 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="current-plan")
     def current_plan(self, request):
-        subscription = SubscriptionValidationService.get_active_subscription(self.request.user)
+        subscription = SubscriptionValidationService.get_current_subscription(self.request.user)
         if not subscription:
             return Response(
                 {
@@ -61,6 +61,10 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
             serializer = PurchaseSubscriptionSerializer(data=request.data, context={"request": request})
             serializer.is_valid(raise_exception=True)
             subscription_plan = serializer.context["plan"]
+
+            if subscription_plan.plan_type == PlanType.FREE_TRAIL:
+                raise ValidationError({"detail": "Free trial plan cannot be purchased."})
+
             subscription_data = SubscriptionPurchaseService.purchase(
                 user=self.request.user,
                 plan=subscription_plan,
@@ -137,7 +141,8 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
             subscription.status = SubscriptionStatus.ACTIVE
             subscription.save(update_fields=["status"])
 
-            UserSubscription.objects.filter(user=self.request.user, plan__plan_type=PlanType.FREE_TRAIL).delete()
+            user_free_trail = UserSubscription.objects.filter(user=self.request.user, plan__plan_type=PlanType.FREE_TRAIL)
+            user_free_trail.first().release_free_trial() if user_free_trail.exists() else None
 
             purchase_info, created = PurchaseInfo.objects.get_or_create(
                 payment=payment,

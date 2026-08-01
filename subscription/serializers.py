@@ -34,12 +34,13 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
     plan = SubscriptionPlanSerializer(read_only=True)
     payment_status = serializers.SerializerMethodField()
     invoice_status = serializers.SerializerMethodField()
+    plan_type = serializers.SerializerMethodField()
     days_remaining = serializers.SerializerMethodField()
     is_active = serializers.SerializerMethodField()
 
     class Meta:
         model = UserSubscription
-        fields = ("id", "uuid", "plan", "status", "billing_cycle", "start_date", "expires_at", "next_billing_date", "auto_renew", "cancelled_at", "expires_at", "payment_status", "invoice_status", "days_remaining", "is_active", "created_at", "updated_at")
+        fields = ("id", "uuid", "plan", "plan_type", "status", "billing_cycle", "start_date", "expires_at", "next_billing_date", "auto_renew", "cancelled_at", "expires_at", "payment_status", "invoice_status", "days_remaining", "is_active", "created_at", "updated_at")
 
     def get_payment_status(self, obj):
         payment = obj.payments.order_by("-created_at").first()
@@ -48,6 +49,9 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
     def get_invoice_status(self, obj):
         invoice = obj.invoices.order_by("-created_at").first()
         return invoice.status if invoice else None
+
+    def get_plan_type(self, obj):
+        return obj.plan.plan_type if obj.plan else None
 
     def get_days_remaining(self, obj):
         if not obj.expires_at:

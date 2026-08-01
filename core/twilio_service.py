@@ -519,6 +519,7 @@ class TwilioService:
                 remote = client.messaging.v1.tollfree_verifications(
                     local_tfv.verification_sid
                 ).fetch()
+                print("remote.status: ", remote.status)
                 if remote.status == "TWILIO_APPROVED":
                     return self.update_tfv_model(
                         phone_number,

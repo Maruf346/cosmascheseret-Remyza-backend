@@ -18,7 +18,7 @@ class OrganizationSetupSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         with transaction.atomic():
             user = self.context["request"].user
-            organization = Organization.objects.create_organization(
+            organization = Organization.objects.create(
                 owner=user,
                 **validated_data,
             )
