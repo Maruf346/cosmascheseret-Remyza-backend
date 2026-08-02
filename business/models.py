@@ -196,6 +196,8 @@ class BusinessSetting(BaseModel):
     def notifications_enabled(self):
         return self.push_notification_enabled or self.email_notification_enabled
 
+
+
 class ProviderAccount(BaseModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="provider_account", blank=True, null=True)
     organization = models.OneToOneField(Organization, on_delete=models.CASCADE, related_name="provider_account")
@@ -223,7 +225,7 @@ class ProviderAccount(BaseModel):
 
 class PhoneNumber(BaseModel):
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="phone_numbers")
-    provider = models.ForeignKey(ProviderAccount, on_delete=models.SET_NULL, blank=True, null=True)
+    provider = models.ForeignKey(ProviderAccount, on_delete=models.SET_NULL, blank=True, null=True, related_name="phone_numbers")
 
     phone_number = models.CharField(max_length=30, unique=True, db_index=True)
     provider_phone_sid = models.CharField(max_length=100, unique=True, db_index=True)

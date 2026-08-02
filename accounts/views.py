@@ -10,6 +10,8 @@ from rest_framework_simplejwt.views import (
 )
 from .choices import OTPPurpose
 from .models import OTPVerification, User
+
+from business.serializers import OrganizationSerializer, ProviderAccountSerializer
 from business.models import PhoneNumber
 from .serializers import (
     AdminLoginSerializer,
@@ -339,11 +341,7 @@ class CurrentUserPlanAndProgressAPIView(APIView):
     def process_organization(self, user):
         self.organization = getattr(user, "organization", None)
         if self.organization:
-            self.response["organization"] = {
-                "id": self.organization.id,
-                "name": self.organization.name,
-                "phone_numbers_count": self.organization.phone_numbers.count(),
-            }
+            self.response["organization"] = OrganizationSerializer(self.organization).data
         else:
             self.response["organization"] = None
 
@@ -356,11 +354,7 @@ class CurrentUserPlanAndProgressAPIView(APIView):
     def process_provider_account(self, user):
         self.provider_account = getattr(user, "provider_account", None)
         if self.provider_account:
-            self.response["provider_account"] = {
-                "id": self.provider_account.id,
-                "name": self.provider_account.name,
-                "phone_numbers_count": self.provider_account.phone_numbers.count(),
-            }
+            self.response["provider_account"] = ProviderAccountSerializer(self.provider_account).data
         else:
             self.response["provider_account"] = None
 
@@ -372,11 +366,10 @@ class CurrentUserPlanAndProgressAPIView(APIView):
 
     def process_phone_numbers(self):
         self.phone_numbers = PhoneNumber.objects.none()
-
         if self.organization and self.provider_account:
             self.phone_numbers = PhoneNumber.objects.filter(
                 organization=self.organization,
-                provider_account=self.provider_account,
+                provider=self.provider_account,
             ).prefetch_related("tfv_verification")
         self.response["phone_numbers"] = [
             {

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Organization, BusinessSetting, UserNotificationSettings,
+    Organization, BusinessSetting, UserNotificationSettings, ProviderAccount, PhoneNumber
 )
 from django.db import transaction
 
@@ -63,6 +63,16 @@ class OrganizationSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(obj.logo.url)
         return obj.logo.url
+
+class ProviderAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProviderAccount
+        fields = "__all__"
+
+class PhoneNumberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PhoneNumber
+        fields = "__all__"
 
 class UserNotificationSettingsSerializer(serializers.ModelSerializer):
     class Meta:
