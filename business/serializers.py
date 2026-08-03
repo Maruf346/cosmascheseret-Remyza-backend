@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    Organization, BusinessSetting, UserNotificationSettings, ProviderAccount, PhoneNumber
+    Organization, BusinessSetting, UserNotificationSettings, ProviderAccount, PhoneNumber, LocalVerification
 )
 from django.db import transaction
 
@@ -69,10 +69,46 @@ class ProviderAccountSerializer(serializers.ModelSerializer):
         model = ProviderAccount
         fields = "__all__"
 
+class LocalVerificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LocalVerification
+        fields = ("id", "is_verified", "complete_progress", "status", "messaging_service", "a2p_brand", "a2p_campaign",)
+
 class PhoneNumberSerializer(serializers.ModelSerializer):
+    verification = serializers.SerializerMethodField()
+    verification_steps = serializers.SerializerMethodField()
     class Meta:
         model = PhoneNumber
         fields = "__all__"
+
+    def get_verification(self, obj):
+        verification, _ = LocalVerification.objects.get_or_create(
+            phone_number=obj
+        )
+        return LocalVerificationSerializer(
+            verification
+        ).data
+
+    def get_verification_steps(self, obj):
+        verification, _ = LocalVerification.objects.get_or_create(phone_number=obj)
+        return [
+
+            {
+                "title": "Messaging Service",
+                "completed": verification.messaging_service is not None,
+            },
+
+            {
+                "title": "A2P Brand",
+                "completed": verification.a2p_brand is not None,
+            },
+
+            {
+                "title": "A2P Campaign",
+                "completed": verification.a2p_campaign is not None,
+            },
+
+        ]
 
 class UserNotificationSettingsSerializer(serializers.ModelSerializer):
     class Meta:

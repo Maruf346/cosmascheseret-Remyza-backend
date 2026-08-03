@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import transaction
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
-from business.models import ProviderAccount, PhoneNumber
+from business.models import ProviderAccount, PhoneNumber, LocalVerification
 from django.utils import timezone
 from typing import Any, Dict
 from business.choices import PhoneNumberStatus
@@ -11,8 +11,10 @@ import logging
 logger = logging.getLogger(__name__)
 import os
 
-from example import sub_account_create_response, toll_free_number_purchase_response
-from core.helper import purchase_to_dict
+from core.models import MessagingService, A2PBrand, A2PCampaign, CustomerProfile
+from core.choices import MessagingServiceStatus
+from example import sub_account_create_response, toll_free_number_purchase_response, twilio_messaging_service_response
+from core.helper import purchase_to_dict, MessageService_to_Dict, TrustHubPolicy_to_Dict, CustomerProfile_to_Dict
 
 class TwilioService:
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -337,6 +339,8 @@ class TwilioService:
             raise
     # ---------------------------------------------------------------------
 
+    # ---------------------------------------------------------------------
+    # Number Purchase
     @transaction.atomic
     def save_phone_number(self, data):
         phone_number, created = PhoneNumber.objects.update_or_create(
@@ -430,6 +434,8 @@ class TwilioService:
         )
         return purchase_to_dict(number)
 
+    # ---------------------------------------------------------------------
+
 
 
     def list_numbers(self, country="US", phone_type="local", area_code=None, sms_enabled=True, limit=20,):
@@ -462,6 +468,422 @@ class TwilioService:
         except TwilioRestException:
             logger.exception("Failed to release phone number.")
             raise
+
+class TwilioLocalVerificationService:
+    def __init__(self, user, phone_number, organization=None):
+        self.user = user
+        self.organization = organization
+        self.phone_number = phone_number
+        self.number_verification = phone_number.local_verification
+        self.client = self.master_client()
+
+    # ---------------------------------------------------------------------
+    # Client
+    def master_client(self) -> Client:
+        ACCOUNT_SID = os.getenv("ACCOUNT_SID")
+        AUTH_TOKEN = os.getenv("AUTH_TOKEN")
+        client = Client(ACCOUNT_SID, AUTH_TOKEN)
+        return client
+
+    def free_trail_client(self) -> Client:
+        FREE_TRAIL_ACCOUNT_SID = os.getenv("FREE_TRAIL_ACCOUNT_SID")
+        FREE_TRAIL_AUTH_TOKEN = os.getenv("FREE_TRAIL_AUTH_TOKEN")
+        client = Client(FREE_TRAIL_ACCOUNT_SID, FREE_TRAIL_AUTH_TOKEN)
+        return client
+
+    def subaccount_client(self) -> Client:
+        provider = self.organization.provider_account
+        return Client(
+            provider.account_sid,
+            provider.auth_token,
+        )
+
+    def get_policies(self):
+        try:
+            client = self.client
+            policies = client.trusthub.v1.policies.list()
+            data = [TrustHubPolicy_to_Dict(policy) for policy in policies]
+            logger.info("Fetched %s TrustHub policies.", len(data),)
+            return data
+        except TwilioRestException:
+            logger.exception("Unable to fetch TrustHub Policies.")
+            raise
+
+    def get_primary_customer_profile(self):
+        try:
+            profile = self.client.trusthub.v1.customer_profiles.list()[0]
+            data = CustomerProfile_to_Dict(profile)
+            logger.info("Primary Customer Profile fetched (%s)", profile.sid,)
+            return data
+        except TwilioRestException:
+            logger.exception("Unable to fetch Primary Customer Profile.")
+            raise
+
+    def get_primary_customer_profile_policy_sid(self):
+        profile = self.get_primary_customer_profile()
+        policy_sid = profile.get("policy_sid")
+        if not policy_sid:
+            raise Exception("Primary Customer Profile Policy SID not found.")
+        return policy_sid
+    # ---------------------------------------------------------------------
+
+    # ----------------------------------------------------
+    # Messaging Service
+    @transaction.atomic
+    def create_messaging_service(self):
+        try:
+            if hasattr(self.organization, "messaging_service"):
+                return self.organization.messaging_service
+
+            client = self.subaccount_client()
+            # service = client.messaging.v1.services.create(friendly_name=f"{self.organization.name} Messaging Service")
+            # service_data = MessageService_to_Dict(service)
+            service_data = twilio_messaging_service_response
+
+            print("=========Message Service Create Dict===========")
+            print("Message Service Serilalizer: ", service_data)
+            print("===============================================")
+            
+            messaging_service = self.save_messaging_service(service_data)
+
+            logger.info("Messaging Service created successfully (%s)", messaging_service.service_sid,)
+            return messaging_service
+        except TwilioRestException as exc:
+            logger.exception("Unable to create Messaging Service.")
+            raise exc
+
+    def save_messaging_service(self, data):
+        return MessagingService.objects.update_or_create(
+            organization=self.organization,
+            defaults={
+                "service_sid": data["sid"],
+                "friendly_name": data["friendly_name"],
+                # "status": data["status"],
+                "status": MessagingServiceStatus.ACTIVE,
+                "last_synced_at": timezone.now(),
+                "metadata": data,
+            },
+        )[0]
     
+    @transaction.atomic
+    def update_messaging_service(self, friendly_name=None):
+        try:
+            messaging_service = self.organization.messaging_service
+            client = self.subaccount_client()
+            service = client.messaging.v1.services(
+                messaging_service.service_sid
+            ).update(
+                friendly_name=friendly_name or messaging_service.friendly_name,
+            )
+
+            service_data = MessageService_to_Dict(service)
+
+            messaging_service.friendly_name = service_data["friendly_name"]
+            messaging_service.last_synced_at = timezone.now()
+            messaging_service.metadata = service_data
+
+            messaging_service.save(
+                update_fields=[
+                    "friendly_name",
+                    "last_synced_at",
+                    "metadata",
+                ]
+            )
+
+            logger.info(
+                "Messaging Service updated successfully (%s)",
+                messaging_service.service_sid,
+            )
+
+            return messaging_service
+        except TwilioRestException as exc:
+            logger.exception(
+                "Unable to update Messaging Service."
+            )
+            raise exc
+
+    @transaction.atomic
+    def sync_messaging_service(self):
+        try:
+            messaging_service = self.organization.messaging_service
+            client = self.subaccount_client()
+            service = client.messaging.v1.services(
+                messaging_service.service_sid
+            ).fetch()
+
+            service_data = self.serialize_messaging_service(service)
+            messaging_service.friendly_name = service_data["friendly_name"]
+            messaging_service.last_synced_at = timezone.now()
+            messaging_service.metadata = service_data
+
+            messaging_service.save(
+                update_fields=[
+                    "friendly_name",
+                    "last_synced_at",
+                    "metadata",
+                ]
+            )
+
+            logger.info(
+                "Messaging Service synced successfully (%s)",
+                messaging_service.service_sid,
+            )
+            return messaging_service
+        except TwilioRestException as exc:
+            logger.exception(
+                "Unable to sync Messaging Service."
+            )
+            raise exc
+
+    @transaction.atomic
+    def attach_phone_number(self):
+        try:
+            if self.number_verification.messaging_service:
+                raise Exception("Message Service already attach.")
+                # self.number_verification.messaging_service
+            
+            messaging_service = self.create_messaging_service()
+            client = self.subaccount_client()
+
+            response = client.messaging.v1.services(
+                messaging_service.service_sid
+            ).phone_numbers.create(
+                phone_number_sid=self.phone_number.provider_phone_sid
+            )
+
+            # Save relation in local database
+            self.number_verification.messaging_service = messaging_service
+            self.number_verification.messaging_service_attachment_sid = response.sid
+            self.number_verification.save(update_fields=["messaging_service", "messaging_service_attachment_sid"])
+
+            self.phone_number.last_synced_at = timezone.now()
+            self.phone_number.save(update_fields=["last_synced_at",])   
+
+            logger.info("Phone number (%s) attached to Messaging Service (%s).", self.phone_number.phone_number, messaging_service.service_sid,)
+            return messaging_service
+        except TwilioRestException as exc:
+            logger.exception("Unable to attach phone number to Messaging Service.")
+            raise exc
+
+    @transaction.atomic
+    def detach_phone_number(self):
+        try:
+            messaging_service = self.phone_number.messaging_service
+            if messaging_service is None:
+                return
+
+            client = self.subaccount_client()
+            assignments = client.messaging.v1.services(
+                messaging_service.service_sid
+            ).phone_numbers.list()
+
+            assignment = next(
+                (
+                    item
+                    for item in assignments
+                    if item.phone_number_sid
+                    == self.phone_number.provider_phone_sid
+                ),
+                None,
+            )
+
+            if assignment:
+                client.messaging.v1.services(
+                    messaging_service.service_sid
+                ).phone_numbers(assignment.sid).delete()
+
+
+
+            # Save relation in local database
+            self.number_verification.messaging_service = None
+            self.number_verification.messaging_service_attachment_sid = None
+            self.number_verification.save(update_fields=["messaging_service", "messaging_service_attachment_sid"])
+
+            self.phone_number.last_synced_at = timezone.now()
+            self.phone_number.save(update_fields=["last_synced_at",])   
+
+            logger.info("Phone number (%s) detached from Messaging Service.", self.phone_number.phone_number,)
+            return True
+        except TwilioRestException as exc:
+            logger.exception(
+                "Unable to detach phone number."
+            )
+            raise exc
+
+    @transaction.atomic
+    def delete_messaging_service(self):
+        try:
+            messaging_service = self.organization.messaging_service
+            client = self.subaccount_client()
+
+            client.messaging.v1.services(
+                messaging_service.service_sid
+            ).delete()
+
+            LocalVerification.objects.filter(
+                messaging_service=messaging_service
+            ).update(
+                messaging_service=None,
+                messaging_service_attachment_sid=None
+            )
+
+
+
+            service_sid = messaging_service.service_sid
+            messaging_service.delete()
+
+            logger.info("Messaging Service deleted successfully (%s)", service_sid,)
+            return True
+        except MessagingService.DoesNotExist:
+            logger.warning(
+                "Messaging Service not found for organization (%s)",
+                self.organization.id,
+            )
+            return False
+        except TwilioRestException as exc:
+            logger.exception(
+                "Unable to delete Messaging Service."
+            )
+            raise exc
+
+    # ----------------------------------------------------
+
+
+    # ----------------------------------------------------
+    # Brand
+    @transaction.atomic
+    def create_customer_profile(self):
+        try:
+            if hasattr(self.organization, "customer_profile"):
+                return self.organization.customer_profile
+
+            policy_sid = self.get_primary_customer_profile_policy_sid()
+            profile = self.client.trusthub.v1.customer_profiles.create(
+                friendly_name=self.organization.name, email=self.organization.email, policy_sid=policy_sid,
+            )
+
+            data = CustomerProfile_to_Dict(profile)
+            customer_profile = self.save_customer_profile(data)
+            logger.info("Customer Profile Created (%s)", customer_profile.profile_sid,)
+            return customer_profile
+        except TwilioRestException:
+            logger.exception(
+                "Unable to create Customer Profile."
+            )
+            raise
+
+    @transaction.atomic
+    def save_customer_profile(self, data):
+        profile, _ = CustomerProfile.objects.update_or_create(
+            organization=self.organization,
+            defaults={
+                "profile_sid": data["sid"],
+                "friendly_name": data["friendly_name"],
+                "policy_sid": data.get("policy_sid", ""),
+                "email": data.get("email", ""),
+                "status": data["status"],
+                "metadata": data,
+                "last_synced_at": timezone.now(),
+            },
+        )
+        return profile
     
+    @transaction.atomic
+    def register_brand(self):
+        """
+        2. Create Business End User
+        3. Assign End User
+        4. Evaluate Customer Profile
+        5. Submit Brand Registration
+        6. Save Brand
+        """
+        profile_policy_sid = self.get_primary_customer_profile_policy_sid()
+
+        # customer_profile = self.create_customer_profile()
+        # end_user = self.create_business_end_user()
+        # self.assign_end_user( customer_profile.sid, end_user.sid,)
+
+        # self.evaluate_customer_profile(customer_profile.sid,)
+
+        # brand = self.submit_brand_registration(customer_profile.sid,)
+
+        # return self.save_brand(brand,)
+        return profile_policy_sid
+
+    def update_brand(self):
+        pass
+
+    def sync_brand(self):
+        pass
+
+    # ----------------------------------------------------
+
+    # ----------------------------------------------------
+    # Campaign
+    def register_campaign(self):
+        pass
+
+    def update_campaign(self):
+        pass
+
+    def sync_campaign(self):
+        pass
+
+    def assign_messaging_service(self):
+        pass
+
+    def remove_messaging_service(self):
+        pass
+
+    # ----------------------------------------------------
+
+    # ----------------------------------------------------
+    # High Level Workflow
+    @transaction.atomic
+    def verify(self):
+        """
+        Complete Verification Process
+
+        1. Create Messaging Service
+        2. Attach Number
+        3. Register Brand
+        4. Register Campaign
+        5. Assign Messaging Service
+        """
+
+        messaging_service = self.create_messaging_service()
+
+        self.attach_phone_number()
+
+        brand = self.register_brand()
+
+        campaign = self.register_campaign()
+
+        self.assign_messaging_service()
+
+        return {
+            "messaging_service": messaging_service,
+            "brand": brand,
+            "campaign": campaign,
+        }
+
+    def sync(self):
+        """
+        Sync every verification object.
+        """
+
+        return {
+            "messaging_service": self.sync_messaging_service(),
+            "brand": self.sync_brand(),
+            "campaign": self.sync_campaign(),
+        }
+
+    def get_status(self):
+        """
+        Returns overall verification status.
+        """
+        pass
+
+    # ----------------------------------------------------
+
 

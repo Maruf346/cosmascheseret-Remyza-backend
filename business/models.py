@@ -4,7 +4,7 @@ from common.models import BaseModel
 from accounts.models import User
 from .choices import (
     OrganizationStatus, CountryCode, OnboardingStep, ProviderAccountStatus,
-    Currency, DateFormat, Language, TimeFormat, AIReplyTone,PhoneProvider, PhoneNumberStatus
+    Currency, DateFormat, Language, TimeFormat, AIReplyTone,PhoneProvider, PhoneNumberStatus, LocalVerificationStatus
 )
 from core.models import BusinessType, Industry
 from django.core.exceptions import ValidationError
@@ -240,7 +240,7 @@ class PhoneNumber(BaseModel):
     purchased_at = models.DateTimeField(null=True, blank=True)
     released_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(default=timezone.now)
-    
+
     class Meta:
         db_table = "business_phone_numbers"
         verbose_name = "Phone Number"
@@ -273,8 +273,46 @@ class PhoneNumber(BaseModel):
         return self.capabilities.get("mms", False)
 
     @property
+    def local_verification(self):
+        verification, _ = LocalVerification.objects.get_or_create(
+            phone_number=self
+        )
+        return verification
+
+    @property
     def voice_enabled(self):
         return self.capabilities.get("voice", False)
+
+class LocalVerification(BaseModel):
+    phone_number = models.OneToOneField(PhoneNumber, on_delete=models.CASCADE, related_name="verification_model")
+    messaging_service = models.ForeignKey("core.MessagingService", on_delete=models.SET_NULL, null=True, blank=True, related_name="messaging_services",)
+    messaging_service_attachment_sid = models.CharField(max_length=255, blank=True, null=True)
+    a2p_brand = models.ForeignKey("core.A2PBrand", on_delete=models.SET_NULL, null=True, blank=True, related_name="a2p_brands",)
+    a2p_campaign = models.ForeignKey("core.A2PCampaign", on_delete=models.SET_NULL, null=True, blank=True, related_name="a2p_campaigns",)
+
+    status = models.CharField(max_length=30, choices=LocalVerificationStatus.choices, default=LocalVerificationStatus.NOT_STARTED,)
+    complete_progress = models.PositiveSmallIntegerField(default=0)
+    is_verified = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        progress = 0
+        if self.messaging_service:
+            progress += 33
+        if self.a2p_brand:
+            progress += 33
+        if self.a2p_campaign:
+            progress += 34
+
+        self.complete_progress = progress
+        self.status = (
+            self.a2p_brand
+            and self.a2p_campaign
+            and self.messaging_service
+            and self.a2p_brand.status == "APPROVED"
+            and self.a2p_campaign.status == "APPROVED"
+        )
+        super().save(*args, **kwargs)
+
 
 
 

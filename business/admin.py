@@ -7,6 +7,7 @@ from .models import (
     BusinessSetting,
     ProviderAccount,
     PhoneNumber,
+    LocalVerification,
     UserNotificationSettings,
 )
 
@@ -46,7 +47,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def primary_phone_display(self, obj):
         phone = obj.primary_phone
         if phone:
-            return phone.number
+            return phone.phone_number
         return "-"
 
     @admin.display(description="Leads")
@@ -85,6 +86,8 @@ class PhoneNumberAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
 
+admin.site.register(LocalVerification)
+# @admin.register(LocalVerification)
 
 @admin.register(UserNotificationSettings)
 class UserNotificationSettingsAdmin(admin.ModelAdmin):

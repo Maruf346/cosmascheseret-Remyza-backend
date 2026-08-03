@@ -1,7 +1,9 @@
 from django.db import models
 from .choices import (
     SettingValueType, NotificationType, NotificationPriority, FreeTrailNumberType,
-    VerificationStatus, OptInType, BusinessTypeChoice, BusinessRegistrationAuthority
+    VerificationStatus, OptInType, BusinessTypeChoice, BusinessRegistrationAuthority,
+
+    MessagingServiceStatus
 )
 from common.models import BaseModel
 from django.utils import timezone
@@ -155,6 +157,9 @@ class UserFreeTrailNumber(BaseModel):
     is_expired = models.BooleanField(default=False)
     is_released = models.BooleanField(default=False)
 
+
+
+
 class TollFreeVerification(models.Model):
     # Relation
     phone_number = models.OneToOneField("business.PhoneNumber", on_delete=models.CASCADE, related_name="tfv_verification", blank=True, null=True)
@@ -227,6 +232,91 @@ class TollFreeVerification(models.Model):
             return f"{self.free_trail_phone_number.phone_number} - {self.verification_status}"
         else:
             return f"{self.business_name} - {self.verification_status}"
+
+class MessagingService(models.Model):
+    organization = models.OneToOneField("business.Organization", on_delete=models.CASCADE, related_name="messaging_services")
+    service_sid = models.CharField(max_length=50, unique=True)
+    friendly_name = models.CharField(max_length=255)
+    status = models.CharField(max_length=30, choices=MessagingServiceStatus.choices, default=MessagingServiceStatus.ACTIVE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True,)
+    metadata = models.JSONField(default=dict, blank=True,)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.friendly_name
+
+class CustomerProfile(models.Model):
+    organization = models.OneToOneField("business.Organization", on_delete=models.CASCADE, related_name="customer_profile")
+    profile_sid = models.CharField(max_length=64, unique=True)
+    policy_sid = models.CharField(max_length=64, blank=True)
+    friendly_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    status = models.CharField(max_length=50, default="draft")
+    metadata = models.JSONField(default=dict, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.friendly_name
+
+class A2PBrand(models.Model):
+    organization = models.OneToOneField("business.Organization", on_delete=models.CASCADE, related_name="a2p_brands")
+    brand_sid = models.CharField(max_length=50, unique=True)
+    status = models.CharField(max_length=30)
+    business_name = models.CharField(max_length=255)
+    ein = models.CharField(max_length=100, blank=True, null=True)
+    website = models.URLField(blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    phone = models.CharField(max_length=30, blank=True, null=True)
+    country = models.CharField(max_length=10)
+    street = models.CharField(max_length=255)
+    city = models.CharField(max_length=100)
+    postal_code = models.CharField(max_length=20)
+    state = models.CharField(max_length=100)
+    identity_status = models.CharField(max_length=50, blank=True, null=True)
+    failure_reason = models.TextField(blank=True, null=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.business_name
+
+class A2PCampaign(models.Model):
+    organization = models.OneToOneField("business.Organization", on_delete=models.CASCADE, related_name="a2p_campaigns")
+    campaign_sid = models.CharField(max_length=50, unique=True)
+    brand = models.ForeignKey("A2PBrand", on_delete=models.CASCADE, related_name="a2p_campaigns")
+    campaign_usecase = models.CharField(max_length=100)
+    status = models.CharField(max_length=30, choices=MessagingServiceStatus.choices, default=MessagingServiceStatus.ACTIVE)
+    description = models.TextField()
+    opt_in = models.TextField()
+    opt_out = models.TextField()
+    help = models.TextField()
+    privacy_policy = models.URLField(blank=True, null=True)
+    terms = models.URLField(blank=True, null=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.campaign_sid
+
+
+
 
 class TwilioWebhookLog(models.Model):
     method = models.CharField(max_length=10, blank=True, null=True)

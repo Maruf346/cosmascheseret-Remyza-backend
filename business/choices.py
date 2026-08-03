@@ -57,6 +57,16 @@ class PhoneNumberStatus(models.TextChoices):
     VERIFICATION_REJECTED = "VERIFICATION REJECTED", "Verification Rejected"
     RELEASED = "RELEASED", "Released"
     FAILED = "FAILED", "Failed"
+
+class LocalVerificationStatus(models.TextChoices):
+    NOT_STARTED = "NOT_STARTED", "Not Started"
+    MESSAGING_SERVICE = "MESSAGING_SERVICE", "Messaging Service"
+    BRAND_SUBMITTED = "BRAND_SUBMITTED", "Brand Submitted"
+    BRAND_APPROVED = "BRAND_APPROVED", "Brand Approved"
+    CAMPAIGN_SUBMITTED = "CAMPAIGN_SUBMITTED", "Campaign Submitted"
+    VERIFIED = "VERIFIED", "Verified"
+    FAILED = "FAILED", "Failed"
+
 # ==========================================================
 
 

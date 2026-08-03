@@ -18,8 +18,8 @@ from rest_framework.decorators import action
 from twilio.rest import Client
 import os
 from core.permissions import IsClientUser
-from .models import ProviderAccount, BusinessSetting
-from .twilio.services import TwilioService
+from .models import ProviderAccount, BusinessSetting, PhoneNumber, Organization
+from .twilio.services import TwilioService, TwilioLocalVerificationService
 from rest_framework.viewsets import GenericViewSet
 
 class BusinessProfileSetupAPIView(BaseCreateAPIView):
@@ -135,7 +135,102 @@ class BusinessSubAccountSyncAPIView(APIView):
 class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
     permission_classes = [IsAuthenticated, IsClientUser]
 
-    def get_organization_profile(self):
+    def get_phone_number(self) -> PhoneNumber:
+        if getattr(self.get_organization_profile(), "phone_numbers", None) is None:
+            raise ValidationError(
+                {
+                    "success": False,
+                    "message": "Phone Number not found."
+                }
+            )
+        phone_number = self.get_organization_profile().phone_numbers.first()
+        return phone_number
+
+    @action(detail=False, methods=["get"], url_path="get")
+    def phone_number_get(self, request):
+        phone_number = self.get_phone_number()
+        return Response(
+            {
+                "success": True,
+                "data": PhoneNumberSerializer(phone_number).data,
+            }, status=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=["get"], url_path="verify-check")
+    def phone_number_verification_check(self, request):
+        verification = self.get_phone_number().local_verification
+        data = [
+
+            {
+                "title": "Messaging Service",
+                "completed": verification.messaging_service is not None,
+            },
+
+            {
+                "title": "A2P Brand",
+                "completed": verification.a2p_brand is not None,
+            },
+
+            {
+                "title": "A2P Campaign",
+                "completed": verification.a2p_campaign is not None,
+            },
+
+        ]
+        return Response(
+            {
+                "success": True,
+                "data": data
+            }, status=status.HTTP_200_OK
+        )
+
+    @action(detail=False, methods=["post"], url_path="verify/step-01")
+    def phone_verification_step_01(self, request):
+        phone_number = self.get_phone_number()
+        local_verification = phone_number.local_verification
+        verification_service = TwilioLocalVerificationService(
+            user=self.request.user, phone_number=phone_number, organization=self.get_organization_profile()
+        )
+
+        if local_verification.messaging_service:
+            messaging_service = local_verification.messaging_service
+        else:
+            messaging_service = verification_service.attach_phone_number()
+
+        if local_verification.a2p_brand:
+            a2p_bran = local_verification.a2p_brand
+        else:
+            a2p_bran = verification_service.register_brand()
+        
+        print("a2p_bran: ", a2p_bran)
+
+        local_verification.refresh_from_db()
+        data = [
+            {
+                "title": "Messaging Service",
+                "completed": local_verification.messaging_service is not None,
+            },
+
+            {
+                "title": "A2P Brand",
+                "completed": local_verification.a2p_brand is not None,
+            },
+
+            {
+                "title": "A2P Campaign",
+                "completed": local_verification.a2p_campaign is not None,
+            },
+
+        ]
+        return Response(
+            {
+                "success": True,
+                "data": data,
+                "policy": a2p_bran
+            }, status=status.HTTP_200_OK
+        )
+    
+    def get_organization_profile(self) -> Organization:
         user = self.request.user
         if hasattr(user, "organization"):
             return user.organization
@@ -229,17 +324,6 @@ class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
                 }, status=status.HTTP_200_OK
             )
 
-    def get_phone_number(self):
-        if getattr(self.get_organization_profile(), "phone_numbers", None) is None:
-            raise ValidationError(
-                {
-                    "success": False,
-                    "message": "Phone Number not found."
-                }
-            )
-        phone_number = self.get_organization_profile().phone_numbers.first()
-        return phone_number
-
     @action(detail=False, methods=["get"], url_path="sync")
     def sync_phone_number(self, request):
         phone_number = self.get_phone_number()
@@ -256,19 +340,20 @@ class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
     def webhook_url_update(self, request):
         phone_number = self.get_phone_number()
         data = request.data
-        payload = {
-            "sms_url": data.get("sms_url", None),
-            "sms_method": data.get("sms_method", None),
-            "voice_url": data.get("voice_url", None),
-            "voice_method": data.get("voice_method", None),
-            "status_callback": data.get("status_callback", None),
-            "status_callback_method": data.get("status_callback_method", None),
-            "voice_fallback_url": data.get("voice_fallback_url", None),
-            "voice_fallback_method": data.get("voice_fallback_method", None),
-            "sms_fallback_url": data.get("sms_fallback_url", None),
-            "sms_fallback_method": data.get("sms_fallback_method", None)
-        }
-        twilio_number = TwilioService(self.request.user, self.get_organization_profile()).update_webhook(phone_number, payload)
+        # print("request.data: ", data)
+        # payload = {
+        #     "sms_url": data.get("sms_url", None),
+        #     "sms_method": data.get("sms_method", None),
+        #     "voice_url": data.get("voice_url", None),
+        #     "voice_method": data.get("voice_method", None),
+        #     "status_callback": data.get("status_callback", None),
+        #     "status_callback_method": data.get("status_callback_method", None),
+        #     "voice_fallback_url": data.get("voice_fallback_url", None),
+        #     "voice_fallback_method": data.get("voice_fallback_method", None),
+        #     "sms_fallback_url": data.get("sms_fallback_url", None),
+        #     "sms_fallback_method": data.get("sms_fallback_method", None)
+        # }
+        twilio_number = TwilioService(self.request.user, self.get_organization_profile()).update_webhook(phone_number, data)
         return Response(
                     {
                 "success": True,

@@ -108,3 +108,49 @@ def TFV_to_dict(record):
         "vetting_id_expiration": record.vetting_id_expiration
     }
 
+def MessageService_to_Dict(service):
+    return {
+        "sid": service.sid,
+        "account_sid": service.account_sid,
+        "friendly_name": service.friendly_name,
+        "status": getattr(service, "status", "ACTIVE"),
+        "inbound_request_url": getattr(service, "inbound_request_url", None),
+        "fallback_url": getattr(service, "fallback_url", None),
+        "status_callback": getattr(service, "status_callback", None),
+        "usecase": getattr(service, "usecase", None),
+        "links": getattr(service, "links", {}),
+        "date_created": (service.date_created.isoformat() if service.date_created else None),
+        "date_updated": (service.date_updated.isoformat() if service.date_updated else None),
+    }
+
+def TrustHubPolicy_to_Dict(policy):
+    return {
+        "sid": policy.sid,
+        "friendly_name": getattr(policy, "friendly_name", ""),
+        "type": getattr(policy, "type", ""),
+        "status": getattr(policy, "status", ""),
+        "url": getattr(policy, "url", ""),
+    }
+
+def CustomerProfile_to_Dict(profile):
+    # status_callback, 
+    return {
+        "sid": profile.sid,
+        "account_sid": profile.account_sid,
+        "policy_sid": profile.policy_sid,
+        "friendly_name": profile.friendly_name,
+        "status": profile.status, # twilio-approved or 
+        "email": getattr(profile, "email", None),
+        "url": getattr(profile, "url", None),
+        "links": getattr(profile, "links", {}),
+        "date_created": (
+            profile.date_created.isoformat()
+            if getattr(profile, "date_created", None)
+            else None
+        ),
+        "date_updated": (
+            profile.date_updated.isoformat()
+            if getattr(profile, "date_updated", None)
+            else None
+        ),
+    }

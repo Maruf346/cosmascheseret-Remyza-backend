@@ -139,3 +139,8 @@ class BusinessRegistrationAuthority(models.TextChoices):
     NEQ = "NEQ", "Quebec Enterprise Number (NEQ)"
     OTHER = "OTHER", "Other"
 
+class MessagingServiceStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    INACTIVE = "inactive", "Inactive"
+    DELETED = "deleted", "Deleted"
+

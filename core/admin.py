@@ -1,7 +1,9 @@
 from django.contrib import admin
 from .models import (
     BusinessType, Notification, AuditLog, SystemSetting, APIKey, Industry,
-    TwilioConfiguration, FreeTrailPhoneNumber, UserFreeTrailNumber, TwilioWebhookLog, TollFreeVerification
+    TwilioConfiguration, FreeTrailPhoneNumber, UserFreeTrailNumber, TwilioWebhookLog, TollFreeVerification,
+
+    MessagingService, A2PBrand, A2PCampaign
 )
 
 
@@ -113,6 +115,9 @@ class TollFreeVerificationAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
     list_per_page = 25
 
+admin.site.register(MessagingService)
+admin.site.register(A2PBrand)
+admin.site.register(A2PCampaign)
 
 @admin.register(TwilioWebhookLog)
 class TwilioWebhookLogAdmin(admin.ModelAdmin):
