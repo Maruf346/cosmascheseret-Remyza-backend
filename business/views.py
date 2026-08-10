@@ -19,7 +19,7 @@ from twilio.rest import Client
 import os
 from core.permissions import IsClientUser
 from .models import ProviderAccount, BusinessSetting, PhoneNumber, Organization
-from .twilio.services import TwilioService, TwilioLocalVerificationService
+from twilio_app.service.services import TwilioService, TwilioLocalVerificationService
 from rest_framework.viewsets import GenericViewSet
 
 class BusinessProfileSetupAPIView(BaseCreateAPIView):
@@ -186,11 +186,14 @@ class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
 
     @action(detail=False, methods=["post"], url_path="verify/step-01")
     def phone_verification_step_01(self, request):
+        # try:
         phone_number = self.get_phone_number()
         local_verification = phone_number.local_verification
         verification_service = TwilioLocalVerificationService(
             user=self.request.user, phone_number=phone_number, organization=self.get_organization_profile()
         )
+
+        data = request.data
 
         if local_verification.messaging_service:
             messaging_service = local_verification.messaging_service
@@ -198,11 +201,10 @@ class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
             messaging_service = verification_service.attach_phone_number()
 
         if local_verification.a2p_brand:
-            a2p_bran = local_verification.a2p_brand
+            a2p_brand = local_verification.a2p_brand
         else:
-            a2p_bran = verification_service.register_brand()
+            a2p_brand = verification_service.register_brand(data)
         
-        print("a2p_bran: ", a2p_bran)
 
         local_verification.refresh_from_db()
         data = [
@@ -226,9 +228,17 @@ class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
             {
                 "success": True,
                 "data": data,
-                "policy": a2p_bran
+                "a2p_brand": a2p_brand,
+                "policy": a2p_brand
             }, status=status.HTTP_200_OK
         )
+        # except Exception as e:
+        #     return Response(
+        #         {
+        #             "success": False,
+        #             "message": str(e)
+        #         }
+        #     )
     
     def get_organization_profile(self) -> Organization:
         user = self.request.user

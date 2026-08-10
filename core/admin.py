@@ -3,7 +3,7 @@ from .models import (
     BusinessType, Notification, AuditLog, SystemSetting, APIKey, Industry,
     TwilioConfiguration, FreeTrailPhoneNumber, UserFreeTrailNumber, TwilioWebhookLog, TollFreeVerification,
 
-    MessagingService, A2PBrand, A2PCampaign
+    MessagingService, CustomerProfile, A2PBrand, A2PCampaign
 )
 
 
@@ -116,6 +116,7 @@ class TollFreeVerificationAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 admin.site.register(MessagingService)
+admin.site.register(CustomerProfile)
 admin.site.register(A2PBrand)
 admin.site.register(A2PCampaign)
 

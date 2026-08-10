@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import transaction
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
-from business.models import ProviderAccount, PhoneNumber, LocalVerification
+from business.models import ProviderAccount, PhoneNumber, LocalVerification, BusinessAddress
 from django.utils import timezone
 from typing import Any, Dict
 from business.choices import PhoneNumberStatus
@@ -13,8 +13,8 @@ import os
 
 from core.models import MessagingService, A2PBrand, A2PCampaign, CustomerProfile
 from core.choices import MessagingServiceStatus
-from example import sub_account_create_response, toll_free_number_purchase_response, twilio_messaging_service_response
-from core.helper import purchase_to_dict, MessageService_to_Dict, TrustHubPolicy_to_Dict, CustomerProfile_to_Dict
+from example import sub_account_create_response, toll_free_number_purchase_response, twilio_messaging_service_response, brand_registration, business_end_user, twilio_address, a2p_profile
+from twilio_app.helper import purchase_to_dict, MessageService_to_Dict, TrustHubPolicy_to_Dict, CustomerProfile_to_Dict, BrandSerializer, EndUserSerializer, TwilioAddressSerializer, A2PProfileSerializer
 
 class TwilioService:
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -750,19 +750,29 @@ class TwilioLocalVerificationService:
 
 
     # ----------------------------------------------------
-    # Brand
+    # Brand---------
+
+    # Create or Get Customer Profile--
     @transaction.atomic
-    def create_customer_profile(self):
+    def get_or_create_customer_profile(self):
         try:
+            client = self.subaccount_client()
             if hasattr(self.organization, "customer_profile"):
-                return self.organization.customer_profile
+                logger.info("Customer Profile Already Created")
+                customer_profile = self.organization.customer_profile
+                twilio_profile = CustomerProfile_to_Dict(
+                    client.trusthub.v1.customer_profiles(sid=customer_profile.profile_sid).fetch()
+                )
+                return customer_profile
 
-            policy_sid = self.get_primary_customer_profile_policy_sid()
-            profile = self.client.trusthub.v1.customer_profiles.create(
-                friendly_name=self.organization.name, email=self.organization.email, policy_sid=policy_sid,
-            )
-
+            # policy_sid = self.get_primary_customer_profile_policy_sid()
+            # profile = client.trusthub.v1.customer_profiles.create(
+            #     friendly_name=self.organization.name, email=self.organization.email, policy_sid=policy_sid,
+            # )
+            customer_profile_bundle_sid = brand_registration["customer_profile_bundle_sid"]
+            profile = client.trusthub.v1.customer_profiles(sid=customer_profile_bundle_sid).fetch()
             data = CustomerProfile_to_Dict(profile)
+
             customer_profile = self.save_customer_profile(data)
             logger.info("Customer Profile Created (%s)", customer_profile.profile_sid,)
             return customer_profile
@@ -771,7 +781,7 @@ class TwilioLocalVerificationService:
                 "Unable to create Customer Profile."
             )
             raise
-
+    
     @transaction.atomic
     def save_customer_profile(self, data):
         profile, _ = CustomerProfile.objects.update_or_create(
@@ -787,34 +797,267 @@ class TwilioLocalVerificationService:
             },
         )
         return profile
+
+    # Create or Get Business End user---
+    def build_business_end_user_attributes(self, payload: dict):
+        return {
+            "business_name": self.organization.name,
+            "business_type": self.organization.business_type.name,
+            "business_industry": self.organization.industry.name,
+            "business_registration_identifier": self.organization.business_registration_identifier,
+            "business_registration_number": self.organization.business_registration_number,
+            "website_url": self.organization.website
+        }
+
+    def create_business_end_user(self, payload: dict,):
+        client = self.subaccount_client()
+        attributes = self.build_business_end_user_attributes(payload)
+        # end_user = (
+        #     self.client.trusthub.v1.end_users.create(
+        #         friendly_name=self.organization.name,
+        #         type="customer_profile_business_end_user",
+        #         attributes=attributes,
+        #     )
+        # )
+        end_user = client.trusthub.v1.end_users(sid=business_end_user["sid"]).fetch()
+        end_user_serializer = EndUserSerializer(end_user)
+        return end_user_serializer
+
+    # Create or Get Business Address---
+    def create_business_address(self, payload: dict):
+        # address = self.subaccount_client().addresses.create(
+        #     # friendly_name
+        #     customer_name=self.organization.name,
+        #     street=payload["street"],
+        #     street_secondary=payload.get("street_secondary", "")
+        #     city=payload["city"],
+        #     region=payload["region"],
+        #     postal_code=payload["postal_code"],
+        #     iso_country=payload["country"],
+        # )
+        address = self.subaccount_client().addresses(sid=twilio_address["sid"]).fetch()
+
+        address_serializer = TwilioAddressSerializer(address)
+        self.save_business_address(address_serializer)
+        return address_serializer
+
+    def save_business_address(self, data):
+        address, created = BusinessAddress.objects.get_or_create(
+            organization=self.organization,
+            twilio_sid=data["sid"],
+            defaults={
+                "street": data["street"],
+                "street_secondary": data.get("street_secondary", ""),
+                "city": data["city"],
+                "state": data["region"],
+                "postal_code": data["postal_code"],
+                "country": data["iso_country"],
+                "twilio_data": data,
+            },
+        )
+        return address
+
+    def assign_end_user_to_customer_profile(self, customer_profile, end_user):
+        return self.subaccount_client().trusthub.v1.customer_profiles(customer_profile.profile_sid).customer_profiles_entity_assignments.create(object_sid=end_user.get("sid"))
     
+    def assign_address_to_customer_profile(self, customer_profile, address):
+        return self.subaccount_client().trusthub.v1.customer_profiles(customer_profile.profile_sid).customer_profiles_entity_assignments.create(object_sid=address.get("sid"))
+
+    def evaluate_customer_profile(self, customer_profile):
+        # try:
+        policy_sid = customer_profile.policy_sid
+        if not policy_sid:
+            raise ValueError("Customer Profile does not have a policy SID.")
+
+        evaluation = self.client.trusthub.v1.customer_profiles(customer_profile.profile_sid).customer_profiles_evaluations.list()
+        # evaluation = self.client.trusthub.v1.customer_profiles(customer_profile.profile_sid).customer_profiles_evaluations.create(policy_sid=policy_sid)
+        logger.info("Customer Profile evaluation created. Profile=%s Evaluation=%s", customer_profile.profile_sid, evaluation)
+        return evaluation
+        # except TwilioRestException:
+        #     logger.exception("Unable to evaluate Customer Profile (%s).", customer_profile.evaluation)
+        #     raise
+    
+    def setup_customer_profile(self, customer_profile, payload: dict,):
+        end_user = self.create_business_end_user(payload)
+        address = self.create_business_address(payload)
+
+        # assign_end_user_to_customer_profile = self.assign_end_user_to_customer_profile(customer_profile, end_user,)
+        # assign_address_to_customer_profile = self.assign_address_to_customer_profile(customer_profile, address,)
+
+        # evaluation = self.evaluate_customer_profile(customer_profile)
+        return end_user, address
+
     @transaction.atomic
-    def register_brand(self):
-        """
-        2. Create Business End User
-        3. Assign End User
-        4. Evaluate Customer Profile
-        5. Submit Brand Registration
-        6. Save Brand
-        """
-        profile_policy_sid = self.get_primary_customer_profile_policy_sid()
+    def create_a2p_profile(self, payload):
+        try:
+            # if hasattr(self.organization, "a2p_profile"):
+            #     return self.organization.a2p_profile
 
-        # customer_profile = self.create_customer_profile()
-        # end_user = self.create_business_end_user()
-        # self.assign_end_user( customer_profile.sid, end_user.sid,)
+            client = self.subaccount_client()
+            profile = client.trusthub.v1.trust_products(sid=a2p_profile.get("sid")).fetch()
+            return A2PProfileSerializer(profile)
 
-        # self.evaluate_customer_profile(customer_profile.sid,)
+            # profile = client.trusthub.v1.trust_products.create(
+            #     friendly_name=f"{self.organization.name} A2P Messaging Profile",
+            #     email=payload.get("email") or self.organization.email,
+            #     policy_sid=payload["policy_sid"],
+            # )
 
-        # brand = self.submit_brand_registration(customer_profile.sid,)
+            # data = self.serialize_a2p_profile(profile)
 
-        # return self.save_brand(brand,)
-        return profile_policy_sid
+            # a2p_profile = self.save_a2p_profile(data=data, payload=payload)
+
+            # logger.info("A2P Profile created successfully (%s)", a2p_profile.profile_sid)
+
+            # return a2p_profile
+
+        except TwilioRestException:
+            logger.exception("Unable to create A2P Profile.")
+            raise
+
+    @transaction.atomic
+    def setup_a2p_profile(self, a2p_profile, end_user, address):
+        try:
+            assing_end_user = self.assign_entity_to_profile(a2p_profile.get("sid"), end_user.get("sid"))
+            assing_address = self.assign_entity_to_profile(a2p_profile.get("sid"), address.get("sid"))
+            logger.info("A2P Profile setup completed (%s)", a2p_profile.get("sid"))
+            return a2p_profile
+        except TwilioRestException:
+            logger.exception("Unable to setup A2P Profile (%s).", a2p_profile.get("sid"))
+            raise
+
+    def assign_entity_to_profile(self, profile_sid, object_sid):
+            client = self.subaccount_client()
+            # return client.trusthub.v1.customer_profiles(profile_sid).customer_profiles_entity_assignments(object_sid=object_sid).fetch()
+            return client.trusthub.v1.customer_profiles(profile_sid).customer_profiles_entity_assignments.list()
+            # return client.trusthub.v1.customer_profiles(profile_sid).customer_profiles_entity_assignments.create(object_sid=object_sid)
+
+    def evaluate_a2p_profile(self, a2p_profile):
+        try:
+            client = self.subaccount_client()
+            if not a2p_profile.get("policy_sid"):
+                raise ValueError("A2P Profile does not have policy_sid.")
+            
+            evaluation = client.trusthub.v1.customer_profiles(a2p_profile.get("sid")).customer_profiles_evaluations.list()
+            # evaluation = self.client.trusthub.v1.customer_profiles(a2p_profile.get("sid")).customer_profiles_evaluations.create(policy_sid=a2p_profile.get("policy_sid"))
+            logger.info("A2P Profile evaluation created. Profile=%s Evaluation=%s", a2p_profile.get("sid"), evaluation)
+            return evaluation
+        except TwilioRestException:
+            logger.exception("Unable to evaluate A2P Profile (%s).", a2p_profile.get("sid"))
+            raise
+    
+    def create_brand_registration(self, customer_profile, a2p_profile, brand_type="STANDARD"):
+        client = self.subaccount_client()
+        try:
+            if not customer_profile.profile_sid:
+                raise ValueError("Customer Profile SID is required.")
+
+            if not a2p_profile.get("sid"):
+                raise ValueError("A2P Profile SID is required.")
+
+            brand = client.messaging.v1.brand_registrations(sid=brand_registration.get("brand_sid")).fetch()
+            # brand = self.client.messaging.v1.brand_registrations.create(
+            #     customer_profile_bundle_sid=customer_profile.profile_sid,
+            #     a2p_profile_bundle_sid=a2p_profile.get("sid"),
+            #     brand_type=brand_type,
+            # )
+            logger.info("A2P Brand Registration created. Brand=%s Status=%s", brand, getattr(brand, "status", None),)
+            return BrandSerializer(brand)
+        except TwilioRestException:
+            logger.exception("Unable to create A2P Brand Registration.")
+            raise
+
+    def register_brand(self, payload):
+        verification = self.phone_number.local_verification
+        if verification.a2p_brand:
+            return verification.a2p_brand
+        
+        # 1. Create Customer Profile
+        customer_profile = self.get_or_create_customer_profile()
+
+        # 2. Prepare Customer Profile
+        end_user, address = self.setup_customer_profile(customer_profile, payload,)
+
+        # 3. Create A2P Profile
+        a2p_profile = self.create_a2p_profile(payload)
+
+        # 4. Prepare A2P Profile
+        self.setup_a2p_profile(a2p_profile, end_user, address,)
+
+        # 5. Evaluate A2P Profile
+        self.evaluate_a2p_profile(a2p_profile)
+
+        # 6. Submit Brand Registration
+        brand = self.create_brand_registration(customer_profile, a2p_profile,)
+
+        # return self.save_brand(brand, payload,)
+        return brand
+
+    
+    # @transaction.atomic
+    # def register_brand(self):
+    #     """
+    #     2. Create Business End User
+    #     3. Assign End User
+    #     4. Evaluate Customer Profile
+    #     5. Submit Brand Registration
+    #     6. Save Brand
+    #     """
+
+    #     verification = self.phone_number.local_verification
+    #     if verification.a2p_brand:
+    #         return verification.a2p_brand
+        
+    #     customer_profile = self.get_or_create_customer_profile()
+
+    #     end_user = self.create_business_end_user(payload={})
+
+        
+
+    #     # end_user = self.create_business_end_user()
+    #     # self.assign_end_user( customer_profile.sid, end_user.sid,)
+
+    #     # self.evaluate_customer_profile(customer_profile.sid,)
+
+    #     # brand = self.submit_brand_registration(customer_profile.sid,)
+
+    #     # return self.save_brand(brand,)
+
+    #     client = self.subaccount_client()
+    #     brand = client.messaging.v1.brand_registrations.list()
+    #     print("brand: ", brand)
+    #     return None
+    #     # return customer_profile
 
     def update_brand(self):
         pass
 
+    @transaction.atomic
     def sync_brand(self):
-        pass
+        client = self.subaccount_client()
+        verification = self.number_verification
+        if verification.a2p_brand is None:
+            return None
+
+        brand = verification.a2p_brand
+        # twilio_brand = self.client.messaging.v1.brand_registrations(brand.brand_sid).fetch()
+        # data = BrandSerializer(twilio_brand)
+        data = brand_registration
+
+        # brand.status = data["status"]
+        # brand.identity_status = data["identity_status"]
+        # brand.failure_reason = data["failure_reason"]
+        # brand.metadata = data
+        # brand.save()
+
+        # if data["status"] == "APPROVED":
+        #     verification.complete_progress = 75
+        #     verification.save(
+        #         update_fields=[
+        #             "complete_progress",
+        #         ]
+        #     )
+        return data
 
     # ----------------------------------------------------
 

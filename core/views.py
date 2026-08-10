@@ -53,8 +53,8 @@ import json
 from django.shortcuts import render
 from rest_framework.exceptions import ValidationError
 
-from .twilio_service import TwilioService
-from .helper import TFV_to_dict
+from twilio_app.service.twilio_service import TwilioService
+from twilio_app.helper import TFV_to_dict
 
 class FreeTrailPhoneNumberViewSet(OwnReadOnlyModelViewSet):
     serializer_class = FreeTrailPhoneNumberSerializer

@@ -133,7 +133,6 @@ def TrustHubPolicy_to_Dict(policy):
     }
 
 def CustomerProfile_to_Dict(profile):
-    # status_callback, 
     return {
         "sid": profile.sid,
         "account_sid": profile.account_sid,
@@ -154,3 +153,88 @@ def CustomerProfile_to_Dict(profile):
             else None
         ),
     }
+
+def EndUserSerializer(end_user):
+    return {
+        "sid": end_user.sid,
+        "account_sid": end_user.account_sid,
+        "friendly_name": end_user.friendly_name,
+        "type": end_user.type,
+        "attributes": end_user.attributes,
+        "date_created": end_user.date_created.isoformat() if getattr(end_user, "date_created", None) else None,
+        "date_updated": end_user.date_updated.isoformat() if getattr(end_user, "date_updated", None) else None
+    }
+
+def TwilioAddressSerializer(addresses):
+    return {
+        "sid": addresses.sid,
+        "account_sid": addresses.account_sid,
+        "customer_name": addresses.customer_name,
+        "friendly_name": addresses.friendly_name,
+        "street": addresses.street,
+        "street_secondary": addresses.street_secondary,
+        "city": addresses.city,
+        "region": addresses.region,
+        "postal_code": addresses.postal_code,
+        "iso_country": addresses.iso_country,
+        "date_created": addresses.date_created.isoformat() if getattr(addresses, "date_created", None) else None,
+        "date_updated": addresses.date_updated.isoformat() if getattr(addresses, "date_updated", None) else None,
+        "emergency_enabled": addresses.emergency_enabled,
+        "validated": addresses.validated,
+        "verified": addresses.verified
+    }
+
+def A2PProfileSerializer(profile):
+    return {
+        "sid": profile.sid,
+        "account_sid": profile.account_sid,
+        "policy_sid": profile.policy_sid,
+        "friendly_name": profile.friendly_name,
+        "status": profile.status,
+        "valid_until": profile.valid_until,
+        "email": profile.email,
+        "status_callback": profile.status_callback,
+        "date_created": profile.date_created,
+        "date_updated": profile.date_updated,
+        "url": profile.url,
+        "links": profile.links,
+        "errors": profile.errors,
+    }
+
+from datetime import datetime
+
+
+def BrandSerializer(brand):
+    return {
+        "brand_sid": brand.sid,
+        "account_sid": brand.account_sid,
+        "customer_profile_bundle_sid": brand.customer_profile_bundle_sid,
+        "a2p_profile_bundle_sid": brand.a2p_profile_bundle_sid,
+        "brand_type": brand.brand_type,
+        "status": brand.status,
+        "tcr_id": brand.tcr_id,
+        "failure_reason": brand.failure_reason,
+        "brand_score": brand.brand_score,
+        "brand_feedback": list(brand.brand_feedback or []),
+        "identity_status": brand.identity_status,
+        "russell_3000": brand.russell_3000,
+        "government_entity": brand.government_entity,
+        "tax_exempt_status": brand.tax_exempt_status,
+        "skip_automatic_sec_vet": brand.skip_automatic_sec_vet,
+        "mock": brand.mock,
+        "errors": list(brand.errors or []),
+        "links": dict(brand.links or {}),
+        "url": brand.url,
+        "date_created": (
+            brand.date_created.isoformat()
+            if isinstance(brand.date_created, datetime)
+            else brand.date_created
+        ),
+        "date_updated": (
+            brand.date_updated.isoformat()
+            if isinstance(brand.date_updated, datetime)
+            else brand.date_updated
+        ),
+    }
+
+

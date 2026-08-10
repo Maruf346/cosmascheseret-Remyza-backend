@@ -11,14 +11,14 @@ import logging
 logger = logging.getLogger(__name__)
 import os
 
-from .models import FreeTrailPhoneNumber
+from core.models import FreeTrailPhoneNumber
+from twilio_app.choices import VerificationStatus
 
 
 from example import toll_free_number_purchase_response
-from .helper import purchase_to_dict, TFV_to_dict
-from .choices import VerificationStatus
+from twilio_app.helper import purchase_to_dict, TFV_to_dict
 from business.choices import PhoneNumberStatus
-from .models import TollFreeVerification
+from core.models import TollFreeVerification
 from django.utils import timezone
 
 class TwilioService:
@@ -249,7 +249,7 @@ class TwilioService:
 
     @transaction.atomic
     def purchase_number(self, phone_number: str, user=None, sms_url: str | None = None, status_callback: str | None = None, voice_url: str | None = None,):
-        from .helper import purchase_to_dict
+        from twilio_app.helper import purchase_to_dict
         from accounts.choices import UserType
 
         organization = getattr(user, "organization", None)

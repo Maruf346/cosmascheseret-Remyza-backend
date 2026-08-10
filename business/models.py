@@ -22,6 +22,8 @@ class Organization(BaseModel):
 
     business_type = models.ForeignKey(BusinessType, on_delete=models.PROTECT, related_name="organizations", blank=True, null=True)
     industry = models.ForeignKey(Industry, on_delete=models.PROTECT, related_name="organizations", blank=True, null=True)
+    business_registration_identifier = models.CharField(max_length=255, blank=True, null=True)
+    business_registration_number = models.CharField(max_length=255, blank=True, null=True)
 
     description = models.TextField(blank=True, default="")
     website = models.URLField(blank=True, default="")
@@ -143,12 +145,14 @@ class BusinessLink(BaseModel):
 
 class BusinessAddress(BaseModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="addresses", blank=True, null=True)
-    address_line_1 = models.CharField(max_length=255)
-    address_line_2 = models.CharField(max_length=255, blank=True, default="")
+    street = models.CharField(max_length=255)
+    street_secondary = models.CharField(max_length=255, blank=True, null=True)
     city = models.CharField(max_length=100, blank=True)
     state = models.CharField(max_length=100, blank=True, default="")
     postal_code = models.CharField(max_length=30, blank=True, default="")
     country = models.CharField(max_length=2, db_index=True)
+    twilio_sid = models.CharField(max_length=255, blank=True, null=True)
+    twilio_data = models.JSONField(default=dict)
     
     @property
     def full_address(self):

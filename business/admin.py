@@ -25,7 +25,7 @@ class BusinessAddressInline(admin.TabularInline):
 class OrganizationAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "owner", "business_type", "industry", "country", "status", "has_phone_number_display", "primary_phone_display", "lead_count_display", "is_verified", "is_demo", "is_onboarding_completed", "created_at")
     list_filter = ("status", "country", "business_type", "industry", "is_verified", "is_demo", "is_onboarding_completed", "created_at")
-    search_fields = ("name", "email", "support_email", "website", "owner__phone_number", "owner__email")
+    search_fields = ("name", "email", "website", "owner__phone_number", "owner__email")
     autocomplete_fields = ("owner",)
     list_select_related = ("owner",)
     readonly_fields = ("created_at", "updated_at")
@@ -33,8 +33,8 @@ class OrganizationAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
     list_per_page = 25
     fieldsets = (
-        ("Organization Information", {"fields": ("owner", "name", "status", "country", "logo", "favicon")}),
-        ("Business Information", {"fields": ("business_type", "industry", "description", "website", "email", "support_email", "business_hours")}),
+        ("Organization Information", {"fields": ("owner", "name", "status", "country", "logo")}),
+        ("Business Information", {"fields": ("business_type", "industry", "description", "website", "email", "business_hours")}),
         ("Onboarding", {"fields": ("is_verified", "is_demo", "is_onboarding_completed", "onboarding_step")}),
         ("System Information", {"classes": ("collapse",), "fields": ("created_at", "updated_at")}),
     )
@@ -86,8 +86,7 @@ class PhoneNumberAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
 
-admin.site.register(LocalVerification)
-# @admin.register(LocalVerification)
+
 
 @admin.register(UserNotificationSettings)
 class UserNotificationSettingsAdmin(admin.ModelAdmin):
@@ -100,4 +99,8 @@ class UserNotificationSettingsAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
     list_per_page = 25
+
+admin.site.register(LocalVerification)
+admin.site.register(BusinessAddress)
+# @admin.register(LocalVerification)
 
