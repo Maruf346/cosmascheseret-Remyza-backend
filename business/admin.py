@@ -3,11 +3,9 @@ from django.contrib import admin
 from .models import (
     Organization,
     BusinessLink,
-    BusinessAddress,
     BusinessSetting,
     ProviderAccount,
     PhoneNumber,
-    LocalVerification,
     UserNotificationSettings,
 )
 
@@ -16,10 +14,6 @@ class BusinessLinkInline(admin.TabularInline):
     model = BusinessLink
     extra = 0
 
-
-class BusinessAddressInline(admin.TabularInline):
-    model = BusinessAddress
-    extra = 0
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
@@ -34,7 +28,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     list_per_page = 25
     fieldsets = (
         ("Organization Information", {"fields": ("owner", "name", "status", "country", "logo")}),
-        ("Business Information", {"fields": ("business_type", "industry", "description", "website", "email", "business_hours")}),
+        ("Business Information", {"fields": ("business_type", "industry", "business_registration_identifier", "business_registration_number", "description", "website", "email", "business_hours")}),
         ("Onboarding", {"fields": ("is_verified", "is_demo", "is_onboarding_completed", "onboarding_step")}),
         ("System Information", {"classes": ("collapse",), "fields": ("created_at", "updated_at")}),
     )
@@ -100,7 +94,4 @@ class UserNotificationSettingsAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
     list_per_page = 25
 
-admin.site.register(LocalVerification)
-admin.site.register(BusinessAddress)
-# @admin.register(LocalVerification)
 

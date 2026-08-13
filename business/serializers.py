@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from .models import (
-    Organization, BusinessSetting, UserNotificationSettings, ProviderAccount, PhoneNumber, LocalVerification
+    Organization, BusinessSetting, UserNotificationSettings, ProviderAccount, PhoneNumber
+)
+from twilio_app.models import (
+    LocalVerification
 )
 from django.db import transaction
 

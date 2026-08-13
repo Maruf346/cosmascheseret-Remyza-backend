@@ -158,78 +158,33 @@ class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
 
     @action(detail=False, methods=["get"], url_path="verify-check")
     def phone_number_verification_check(self, request):
-        verification = self.get_phone_number().local_verification
-        data = [
-
-            {
-                "title": "Messaging Service",
-                "completed": verification.messaging_service is not None,
-            },
-
-            {
-                "title": "A2P Brand",
-                "completed": verification.a2p_brand is not None,
-            },
-
-            {
-                "title": "A2P Campaign",
-                "completed": verification.a2p_campaign is not None,
-            },
-
-        ]
+        from twilio_app.service.local_verification import LocalNumberVerificationHelper
         return Response(
             {
                 "success": True,
-                "data": data
+                "data": LocalNumberVerificationHelper(self.request.user, self.get_phone_number(), self.get_organization_profile()).return_data()
             }, status=status.HTTP_200_OK
         )
+
+
+
+
+
 
     @action(detail=False, methods=["post"], url_path="verify/step-01")
     def phone_verification_step_01(self, request):
         # try:
-        phone_number = self.get_phone_number()
-        local_verification = phone_number.local_verification
-        verification_service = TwilioLocalVerificationService(
-            user=self.request.user, phone_number=phone_number, organization=self.get_organization_profile()
-        )
-
-        data = request.data
-
-        if local_verification.messaging_service:
-            messaging_service = local_verification.messaging_service
-        else:
-            messaging_service = verification_service.attach_phone_number()
-
-        if local_verification.a2p_brand:
-            a2p_brand = local_verification.a2p_brand
-        else:
-            a2p_brand = verification_service.register_brand(data)
+        from twilio_app.service.local_verification import LocalNumberVerificationHelper
         
+        phone_number = self.get_phone_number()
+        verification = LocalNumberVerificationHelper(self.request.user, phone_number, self.get_organization_profile())
+        data, a2p_brand = verification.verification_step_one(data=request.data)
 
-        local_verification.refresh_from_db()
-        data = [
-            {
-                "title": "Messaging Service",
-                "completed": local_verification.messaging_service is not None,
-            },
-
-            {
-                "title": "A2P Brand",
-                "completed": local_verification.a2p_brand is not None,
-            },
-
-            {
-                "title": "A2P Campaign",
-                "completed": local_verification.a2p_campaign is not None,
-            },
-
-        ]
         return Response(
             {
                 "success": True,
                 "data": data,
                 "a2p_brand": a2p_brand,
-                "policy": a2p_brand
             }, status=status.HTTP_200_OK
         )
         # except Exception as e:
@@ -237,9 +192,370 @@ class BusinessPhoneNumberSetupAPIViewSets(GenericViewSet):
         #         {
         #             "success": False,
         #             "message": str(e)
-        #         }
+        #         }, status=status.HTTP_200_OK
         #     )
     
+    @action(detail=False, methods=["post"], url_path="verify/customer-profile")
+    def phone_verification_customer_profile(self, request):
+        from twilio_app.service.local_verification import LocalNumberVerificationHelper
+
+        verification = LocalNumberVerificationHelper(self.request.user, self.get_phone_number(), self.get_organization_profile())
+        customer_profile = verification.verification_customer_profile(data=request.data)
+        a2p_product = verification.verification_a2p_profile(data=request.data)
+        brand_registration = verification.verification_brand_registration(data=request.data)
+        campaign_registration = verification.verification_campaign_registration(data=request.data)
+
+        # data = verification.get_policies()
+
+        return Response(
+            {
+                "success": True,
+                "customer_profile": customer_profile,
+                "a2p_product": a2p_product,
+                "brand_registration": brand_registration,
+                "campaign_registration": campaign_registration
+                # "data": data
+            }, status=status.HTTP_200_OK
+        )
+    
+    @action(detail=False, methods=["post"], url_path="delete-profile")
+    def delete_twilio_profile(self, request, *args, **kwargs):
+        try:
+            provider = self.get_organization_profile().provider_account
+            client = Client(provider.account_sid, provider.auth_token,)
+            local_verification = self.get_phone_number().local_verification
+            if local_verification:
+                print(f"[DELETE START] End User Assignment")
+                if local_verification.end_user_assign_to_customer_profiles_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).customer_profiles_entity_assignments(
+                            sid=local_verification.end_user_assign_to_customer_profiles_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] End User Assignment")
+
+
+                print(f"[DELETE START] Authorized Representative 1 Assignment")
+                if local_verification.authorized_representative_1_assign_to_customer_profiles_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).customer_profiles_entity_assignments(
+                            sid=local_verification.authorized_representative_1_assign_to_customer_profiles_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+                
+                print(f"[DELETE END] Authorized Representative 1 Assignment")
+
+
+                print(f"[DELETE START] Authorized Representative 2 Assignment")
+                if local_verification.authorized_representative_2_assign_to_customer_profiles_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).customer_profiles_entity_assignments(
+                            sid=local_verification.authorized_representative_2_assign_to_customer_profiles_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+                
+                print(f"[DELETE END] Authorized Representative 2 Assignment")
+
+
+                print(f"[DELETE START] Primary Customer Profile Assignment")
+                if local_verification.primary_customer_profile_assign_to_customer_profile_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).customer_profiles_entity_assignments(
+                            sid=local_verification.primary_customer_profile_assign_to_customer_profile_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Primary Customer Profile Assignment")
+
+
+                print(f"[DELETE START] Supporting Document Assignment")
+                if local_verification.supporting_document_assign_to_customer_profile_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).customer_profiles_entity_assignments(
+                            sid=local_verification.supporting_document_assign_to_customer_profile_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Supporting Document Assignment")
+
+
+                print(f"[DELETE START] Phone Number Assignment")
+                if local_verification.phone_number_assign_to_customer_profile_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).customer_profiles_channel_endpoint_assignment(
+                            sid=local_verification.phone_number_assign_to_customer_profile_sid
+                        ).fetch()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Phone Number Assignment")
+
+
+                print(f"[DELETE START] Profile Evaluation")
+                if local_verification.profile_evaluation_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).customer_profiles_evaluations(
+                            sid=local_verification.profile_evaluation_sid
+                        ).fetch()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Profile Evaluation")
+
+
+                print(f"[DELETE START] Customer Profile")
+                if local_verification.customer_profile_sid:
+                    try:
+                        client.trusthub.v1.customer_profiles(
+                            sid=local_verification.customer_profile_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Customer Profile")
+
+
+                print(f"[DELETE START] End User")
+                if local_verification.end_user_sid:
+                    try:
+                        client.trusthub.v1.end_users(
+                            sid=local_verification.end_user_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] End User")
+
+
+                print(f"[DELETE START] Authorized Representative 2")
+                if local_verification.authorized_representative_1_sid:
+                    try:
+                        client.trusthub.v1.end_users(
+                            sid=local_verification.authorized_representative_1_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Authorized Representative 2")
+
+
+                print(f"[DELETE START] Authorized Representative 2")
+                if local_verification.authorized_representative_2_sid:
+                    try:
+                        client.trusthub.v1.end_users(
+                            sid=local_verification.authorized_representative_2_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Authorized Representative 2")
+
+
+                print(f"[DELETE START] Address")
+                if local_verification.address_sid:
+                    try:
+                        client.addresses(
+                            sid=local_verification.address_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Address")
+
+
+                print(f"[DELETE START] Supporting Document")
+                if local_verification.supporting_document_sid:
+                    try:
+                        client.trusthub.v1.supporting_documents(
+                            sid=local_verification.supporting_document_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] Supporting Document")
+
+                # =========================================================================================
+
+                print(f"[DELETE START] A2P Trusted Product Evaluation")
+                if local_verification.a2p_evaluation_sid:
+                    try:
+                        client.trusthub.v1.trust_products(
+                            sid=local_verification.a2p_profile_sid
+                        ).trust_products_evaluations(
+                            sid=local_verification.a2p_evaluation_sid
+                        ).fetch()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] A2P Trusted Product Evaluation")
+
+
+                print(f"[DELETE START] A2P End User Assignment")
+                if local_verification.end_user_assign_to_a2p_sid:
+                    try:
+                        client.trusthub.v1.trust_products(
+                            sid=local_verification.a2p_profile_sid
+                        ).trust_products_entity_assignments(
+                            sid=local_verification.end_user_assign_to_a2p_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] A2P End User Assignment")
+
+
+                print(f"[DELETE START] A2P Customer Profile Assign")
+                if local_verification.customer_profile_assign_to_a2p_sid:
+                    try:
+                        client.trusthub.v1.trust_products(
+                            sid=local_verification.a2p_profile_sid
+                        ).trust_products_entity_assignments(
+                            sid=local_verification.customer_profile_assign_to_a2p_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] A2P Customer Profile Assign")
+
+
+                print(f"[DELETE START] A2P Profile")
+                if local_verification.a2p_profile_sid:
+                    try:
+                        client.trusthub.v1.trust_products(
+                            sid=local_verification.a2p_profile_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] A2P Profile")
+
+
+                print(f"[DELETE START] A2P End User")
+                if local_verification.a2p_end_user_sid:
+                    try:
+                        client.trusthub.v1.end_users(
+                            sid=local_verification.a2p_end_user_sid
+                        ).delete()
+                    except Exception as e:
+                        print(f"[DELETE ERROR] {str(e)}")
+
+                print(f"[DELETE END] A2P End User")
+
+                
+                # print(f"[DELETE START] A2P Trusted Product Evaluation")
+                # if local_verification.a2p_brand_sid:
+                #     try:
+                #         client.trusthub.v1.trust_products(
+                #             sid=local_verification.a2p_profile_sid
+                #         ).trust_products_evaluations(
+                #             sid=local_verification.a2p_evaluation_sid
+                #         ).fetch()
+                #     except Exception as e:
+                #         print(f"[DELETE ERROR] {str(e)}")
+
+                # print(f"[DELETE END] A2P Trusted Product Evaluation")
+
+
+
+
+                print(f"[DATABASE START] Reset Local Verification SIDs")
+
+                local_verification.end_user_assign_to_customer_profiles_sid = None
+                local_verification.authorized_representative_1_assign_to_customer_profiles_sid = None
+                local_verification.primary_customer_profile_assign_to_customer_profile_sid = None
+                local_verification.supporting_document_assign_to_customer_profile_sid = None
+                local_verification.phone_number_assign_to_customer_profile_sid = None
+                local_verification.profile_evaluation_sid = None
+                local_verification.customer_profile_sid = None
+                local_verification.end_user_sid = None
+                local_verification.authorized_representative_1_sid = None
+                local_verification.address_sid = None
+                local_verification.supporting_document_sid = None
+
+                local_verification.a2p_profile_sid = None
+                local_verification.a2p_end_user_sid = None
+                local_verification.end_user_assign_to_a2p_sid = None
+                local_verification.customer_profile_assign_to_a2p_sid = None
+                local_verification.a2p_evaluation_sid = None
+                local_verification.a2p_brand_sid = None
+
+                local_verification.save()
+
+                print(f"[DATABASE END] Reset Local Verification SIDs")
+
+
+
+
+            # provider = self.get_organization_profile().provider_account
+            # client = Client(provider.account_sid, provider.auth_token,)
+            # profile = client.trusthub.v1.customer_profiles(sid=data.get("sid")).delete()
+            # from twilio_app.service.local_verification import LocalNumberVerificationHelper
+            # verification = LocalNumberVerificationHelper(self.request.user, self.get_phone_number(), self.get_organization_profile())
+            # print("profile: ", verification.get_primary_customer_profile())
+            # address = client.addresses(sid=data.get("sid")).delete()
+            # end_user = client.trusthub.v1.end_users(sid=data.get("sid")).delete()
+            # end_user = client.trusthub.v1.end_users.list()
+            # print("end_user: ", end_user)
+            
+            return Response(
+                {
+                    "success": True,
+                }
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(e)
+                }
+            )
+
+    @action(detail=False, methods=["post"], url_path="delete-sid")
+    def delete_twilio_sid(self, request, *args, **kwargs):
+        try:
+            provider = self.get_organization_profile().provider_account
+            client = Client(provider.account_sid, provider.auth_token,)
+            local_verification = self.get_phone_number().local_verification
+
+            client.trusthub.v1.customer_profiles(sid="").delete()
+
+            return Response(
+                {
+                    "success": True,
+                }
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(e)
+                }
+            )
+
+
+
+
+
     def get_organization_profile(self) -> Organization:
         user = self.request.user
         if hasattr(user, "organization"):
