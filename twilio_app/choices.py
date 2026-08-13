@@ -50,16 +50,25 @@ class MessagingServiceStatus(models.TextChoices):
     SUSPENDED = "SUSPENDED", "Suspended"
     DELETED = "deleted", "Deleted"
 
+# class LocalVerificationStatus(models.TextChoices):
+#     DRAFT = "DRAFT", "Draft"
+#     IN_PROGRESS = "IN_PROGRESS", "In Progress"
+#     BRAND_PENDING = "BRAND_PENDING", "Brand Pending"
+#     CAMPAIGN_PENDING = "CAMPAIGN_PENDING", "Campaign Pending"
+#     SUBMITTED = "SUBMITTED", "Submitted"
+#     APPROVED = "APPROVED", "Approved"
+#     REJECTED = "REJECTED", "Rejected"
+#     FAILED = "FAILED", "Failed"
+#     COMPLETED = "COMPLETED", "Completed"
+
 class LocalVerificationStatus(models.TextChoices):
-    DRAFT = "DRAFT", "Draft"
-    IN_PROGRESS = "IN_PROGRESS", "In Progress"
-    BRAND_PENDING = "BRAND_PENDING", "Brand Pending"
-    CAMPAIGN_PENDING = "CAMPAIGN_PENDING", "Campaign Pending"
-    SUBMITTED = "SUBMITTED", "Submitted"
-    APPROVED = "APPROVED", "Approved"
-    REJECTED = "REJECTED", "Rejected"
+    NOT_STARTED = "NOT_STARTED", "Not Started"
+    MESSAGING_SERVICE = "MESSAGING_SERVICE", "Messaging Service"
+    BRAND_SUBMITTED = "BRAND_SUBMITTED", "Brand Submitted"
+    BRAND_APPROVED = "BRAND_APPROVED", "Brand Approved"
+    CAMPAIGN_SUBMITTED = "CAMPAIGN_SUBMITTED", "Campaign Submitted"
+    VERIFIED = "VERIFIED", "Verified"
     FAILED = "FAILED", "Failed"
-    COMPLETED = "COMPLETED", "Completed"
 
 class VerificationStep(models.TextChoices):
     MESSAGING_SERVICE = "MESSAGING_SERVICE", "Messaging Service"

@@ -1,3 +1,4 @@
+from datetime import datetime
 
 def purchase_to_dict(phone):
     return {
@@ -194,15 +195,36 @@ def A2PProfileSerializer(profile):
         "valid_until": profile.valid_until,
         "email": profile.email,
         "status_callback": profile.status_callback,
-        "date_created": profile.date_created,
-        "date_updated": profile.date_updated,
+        "date_created": (
+            profile.date_created.isoformat()
+            if isinstance(profile.date_created, datetime)
+            else profile.date_created
+        ),
+        "date_updated": (
+            profile.date_updated.isoformat()
+            if isinstance(profile.date_updated, datetime)
+            else profile.date_updated
+        ),
         "url": profile.url,
         "links": profile.links,
         "errors": profile.errors,
     }
 
-from datetime import datetime
-
+def A2PEvaluationSerializer(evaluation):
+    return {
+        "sid": evaluation.sid,
+        "account_sid": evaluation.account_sid,
+        "policy_sid": evaluation.policy_sid,
+        "customer_profile_sid": evaluation.customer_profile_sid,
+        "status": evaluation.status,
+        "results": evaluation.results,
+        "date_created": (
+            evaluation.date_created.isoformat()
+            if isinstance(evaluation.date_created, datetime)
+            else evaluation.date_created
+        ),
+        "url": evaluation.url,
+    }
 
 def BrandSerializer(brand):
     return {

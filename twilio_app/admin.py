@@ -10,7 +10,6 @@ from .models import (
     A2PBrand,
     A2PCampaign,
     MessagingService,
-    MessagingServicePhoneAssignment,
     LocalVerification,
     LocalVerificationStep,
     TollFreeVerification,
@@ -158,7 +157,7 @@ class A2PCampaignAdmin(admin.ModelAdmin):
 class MessagingServiceAdmin(admin.ModelAdmin):
     list_display = (
         "organization", "service_sid", "friendly_name", "status",
-        "messaging_service_sid", "last_synced_at", "created_at",
+        "last_synced_at", "created_at",
     )
     list_filter = ("status", "created_at", "updated_at")
     search_fields = (
@@ -168,23 +167,6 @@ class MessagingServiceAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
     autocomplete_fields = ("organization",)
     ordering = ("-created_at",)
-
-
-@admin.register(MessagingServicePhoneAssignment)
-class MessagingServicePhoneAssignmentAdmin(admin.ModelAdmin):
-    list_display = (
-        "messaging_service", "phone_number", "attachment_sid", "status",
-        "assigned_at", "detached_at", "created_at",
-    )
-    list_filter = ("status", "assigned_at", "detached_at", "created_at")
-    search_fields = (
-        "messaging_service__service_sid", "messaging_service__friendly_name",
-        "attachment_sid", "phone_number__phone_number", "status",
-    )
-    readonly_fields = ("created_at", "updated_at")
-    autocomplete_fields = ("messaging_service", "phone_number")
-    ordering = ("-created_at",)
-
 
 @admin.register(LocalVerification)
 class LocalVerificationAdmin(admin.ModelAdmin):
