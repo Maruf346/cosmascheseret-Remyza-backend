@@ -82,8 +82,8 @@ SIMPLE_JWT = {
 CORS_ORIGIN_ALLOW_ALL = True
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Worker Hiring API',
-    'DESCRIPTION': 'API documentation for your project',
+    'TITLE': 'Chesara API',
+    'DESCRIPTION': 'API documentation for Chesara project',
     'VERSION': '1.0.0',
     'SECURITY': [{'BearerAuth': []}],
     'COMPONENTS': {
