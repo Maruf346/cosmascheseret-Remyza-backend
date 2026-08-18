@@ -909,7 +909,7 @@ class LocalNumberVerificationHelper:
                         "Hi John, Thanks for contacting Chesera LLC. We received your message. This is an automated support response. A team member will assist you shortly. Reply STOP to unsubscribe. Reply HELP for help.",
                         "Hello, your appointment with Chesera LLC is confirmed for tomorrow at 2:00 PM. Please let us know if you need to reschedule. Reply STOP to opt-out.",
                         "Hi Sarah, your order #12345 has been processed and is ready for pickup. If you have any questions, just reply to this text. Text STOP to cancel messages."
-                    ]
+                    ],
                     message_flow = (
                         """
 End users opt-in to receive messages in two ways. First (Inbound SMS): Customers find our business contact number on our website or business listings and initiate the conversation by sending an SMS to our support team. Second (Verbal Consent): Customers call our support line and provide explicit verbal consent to receive SMS updates. The support representative reads a standard script asking, "Do you agree to receive SMS text messages from Chesera LLC for support, order status, and appointment updates? Message and data rates may apply." Once the customer verbally agrees, this consent is explicitly documented and logged in our secure CRM system before any outbound SMS is sent. Consent and phone numbers are strictly kept confidential and are never shared with, sold to, or distributed to any third parties or affiliates for marketing purposes.

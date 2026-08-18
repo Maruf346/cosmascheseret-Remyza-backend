@@ -63,7 +63,7 @@ REST_FRAMEWORK = {
         'django_filters.rest_framework.DjangoFilterBackend',
     ),
 
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_SCHEMA_CLASS': 'core.schema.TaggedAutoSchema',
 }
 
 SIMPLE_JWT = {
@@ -85,6 +85,29 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Chesara API',
     'DESCRIPTION': 'API documentation for Chesara project',
     'VERSION': '1.0.0',
+    'TAGS': [
+        {'name': 'Auth - Admin', 'description': 'Admin authentication endpoints.'},
+        {'name': 'Auth - User', 'description': 'Client OTP authentication endpoints.'},
+        {'name': 'Auth - Token', 'description': 'JWT refresh and verification endpoints.'},
+        {'name': 'User Account', 'description': 'Current user profile and account management.'},
+        {'name': 'User Plan Progress', 'description': 'Current user subscription and onboarding progress.'},
+        {'name': 'Business Onboarding', 'description': 'Business profile setup and onboarding state.'},
+        {'name': 'Business Profile', 'description': 'Current user business profile endpoints.'},
+        {'name': 'Business Settings', 'description': 'Business automation and reply settings.'},
+        {'name': 'Notifications', 'description': 'User notification preferences.'},
+        {'name': 'Twilio - Subaccounts', 'description': 'Twilio subaccount setup and synchronization.'},
+        {'name': 'Phone Numbers', 'description': 'Business phone number search, purchase, sync, and webhook setup.'},
+        {'name': 'Twilio - Verification', 'description': 'Local number, TrustHub, A2P, and campaign verification workflows.'},
+        {'name': 'Twilio - Webhooks', 'description': 'Twilio inbound webhook endpoints.'},
+        {'name': 'Toll-Free Verification', 'description': 'Toll-free verification and SMS consent endpoints.'},
+        {'name': 'Trial Numbers', 'description': 'Free trial phone number inventory and management.'},
+        {'name': 'Free Trial', 'description': 'Free trial subscription and number claim workflows.'},
+        {'name': 'Subscription Plans', 'description': 'Available subscription plan endpoints.'},
+        {'name': 'User Subscriptions', 'description': 'Current user subscription records and active plan.'},
+        {'name': 'Subscription Purchase', 'description': 'Paid subscription purchase and activation workflows.'},
+        {'name': 'Reference Data', 'description': 'Business type and industry reference data.'},
+        {'name': 'API Schema', 'description': 'OpenAPI schema endpoint used by Swagger and ReDoc.'},
+    ],
     'SECURITY': [{'BearerAuth': []}],
     'COMPONENTS': {
         'SECURITY_SCHEMES': {
