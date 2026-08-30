@@ -19,9 +19,6 @@ class TaggedAutoSchema(AutoSchema):
         ("/api/v1/business-types/", "Reference Data"),
         ("/api/v1/industries/", "Reference Data"),
         ("/api/v1/sentdm/", "Sent.dm"),
-        ("/api/v1/subscription-plans/", "Subscription Plans"),
-        ("/api/v1/user-subscription/purchase", "Subscription Purchase"),
-        ("/api/v1/user-subscription/current-plan/", "User Subscriptions"),
         ("/api/v1/user-subscription/", "User Subscriptions"),
     )
 
@@ -29,7 +26,7 @@ class TaggedAutoSchema(AutoSchema):
         "accounts": "User Account",
         "business": "Business",
         "core": "Core",
-        "subscription": "Subscriptions",
+        "subscription": "User Subscriptions",
         "communications": "Communications",
         "crm": "CRM",
         "ai": "AI",

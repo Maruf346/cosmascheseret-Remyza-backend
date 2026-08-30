@@ -3,7 +3,7 @@ from django.db import models
 from common.models import BaseModel
 from .choices import (
     PlanType, SubscriptionStatus, BillingCycle, BillingType,
-    PaymentProvider, PaymentStatus, PurchasePlatform, InvoiceStatus, Currency
+    PaymentProvider, PaymentStatus, PurchasePlatform, InvoiceStatus, Currency, PaymentMediumChoices, StoreEnvironmentChoices
 )
 import uuid
 
@@ -37,7 +37,7 @@ class UserSubscription(BaseModel):
     uuid = models.UUIDField(max_length=120, db_index=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="subscriptions", blank=True, null=True)
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="subscription", blank=True, null=True)
-    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT, related_name="subscriptions")
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT, related_name="subscriptions", blank=True, null=True)
     status = models.CharField(max_length=20, choices=SubscriptionStatus.choices, default=SubscriptionStatus.AWAITING_PAYMENT, db_index=True)
     billing_cycle = models.CharField(max_length=20, choices=BillingCycle.choices, blank=True, null=True)
     start_date = models.DateTimeField()
@@ -45,17 +45,33 @@ class UserSubscription(BaseModel):
     next_billing_date = models.DateTimeField(null=True, blank=True)
     auto_renew = models.BooleanField(default=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    product_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    plan_type = models.CharField(max_length=100, blank=True, default="")
+    medium = models.CharField(max_length=20, choices=PaymentMediumChoices.choices, blank=True, default="", db_index=True)
+    purchase_token = models.TextField(blank=True, default="")
+    transaction_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    original_transaction_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    order_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    store_environment = models.CharField(max_length=20, choices=StoreEnvironmentChoices.choices, blank=True, default="", db_index=True)
+    store_status = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    is_subscription_active = models.BooleanField(default=False, db_index=True)
+    purchase_date = models.DateTimeField(blank=True, null=True)
+    expiry_date = models.DateTimeField(blank=True, null=True, db_index=True)
+    amount = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    currency_code = models.CharField(max_length=10, blank=True, default="")
+    verification_payload = models.JSONField(blank=True, default=dict)
+    app_bundle_id = models.CharField(max_length=100, default="com.chesera.app")
 
     @property
     def is_free_trial(self):
-        return self.plan.plan_type == PlanType.FREE_TRAIL and self.status == SubscriptionStatus.ACTIVE
+        return bool(self.plan and self.plan.plan_type == PlanType.FREE_TRAIL and self.status == SubscriptionStatus.ACTIVE)
 
     @property
     def is_active(self):
         return self.status == SubscriptionStatus.ACTIVE and (self.expires_at is None or self.expires_at > timezone.now())
 
     def release_free_trial(self):
-        if self.plan.plan_type == PlanType.FREE_TRAIL:
+        if self.plan and self.plan.plan_type == PlanType.FREE_TRAIL:
             self.status = SubscriptionStatus.CLOSE
             self.save(update_fields=["status"])
 

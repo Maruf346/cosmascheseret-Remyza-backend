@@ -1,6 +1,5 @@
 from celery import shared_task
 from django.utils import timezone
-from subscription.models import UserSubscription, SubscriptionStatus, PlanType
 from business.models import PhoneNumber, PhoneNumberStatus
 from crm.models import FollowUpReminder
 import logging
@@ -18,31 +17,8 @@ class PushNotificationService:
 
 @shared_task
 def check_trial_expirations():
-    now = timezone.now()
-    expired_trials = UserSubscription.objects.filter(
-        plan__plan_type=PlanType.TRIAL,
-        status=SubscriptionStatus.ACTIVE,
-        expires_at__lt=now
-    )
-
-    for sub in expired_trials:
-        # Expire the subscription
-        sub.status = SubscriptionStatus.EXPIRED
-        sub.save()
-
-        # Check if the organization has an assigned trial phone number from the pool
-        # For our architecture, if the organization has numbers, we release them.
-        org_numbers = PhoneNumber.objects.filter(organization=sub.organization)
-        for number in org_numbers:
-            # Reclaim the number for the pool or delete it based on business rules
-            number.organization = None # Or transfer to an admin organization
-            number.status = PhoneNumberStatus.RELEASED
-            number.released_at = now
-            number.save()
-        
-        # Trigger an email/notification prompting them to subscribe to a paid tier.
-        logger.info(f"Expired trial for organization: {sub.organization.name}")
-
+    """Legacy no-op: free-trial phone-number subscriptions were removed for Sent.dm/IAP flow."""
+    return
 @shared_task
 def send_follow_up_reminders():
     """

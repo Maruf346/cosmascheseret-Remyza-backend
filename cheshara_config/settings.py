@@ -94,16 +94,10 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Business', 'description': 'Business management, automation and reply settings.'},
         {'name': 'Notifications', 'description': 'User notification preferences.'},
         {'name': 'Sent.dm', 'description': 'Sent.dm sandbox, sender profile, message, and webhook endpoints.'},
-        {'name': 'Subscription Plans', 'description': 'Available subscription plan endpoints.'},
-        {'name': 'User Subscriptions', 'description': 'Current user subscription records and active plan.'},
-        {'name': 'Subscription Purchase', 'description': 'Paid subscription purchase and activation workflows.'},
+        {'name': 'User Subscriptions', 'description': 'Apple/Google in-app subscription records and admin subscription review.'},
         {'name': 'Reference Data', 'description': 'Business type and industry reference data.'},
         {'name': 'API Schema', 'description': 'OpenAPI schema endpoint used by Swagger and ReDoc.'},
-    ],
-    'ENUM_NAME_OVERRIDES': {
-        'SubscriptionBillingCycleEnum': 'subscription.choices.BillingCycle.choices',
-    },
-    'SECURITY': [{'BearerAuth': []}],
+    ],    'SECURITY': [{'BearerAuth': []}],
     'COMPONENTS': {
         'SECURITY_SCHEMES': {
             'BearerAuth': {

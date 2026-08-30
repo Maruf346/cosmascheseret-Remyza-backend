@@ -173,8 +173,8 @@ class CurrentUserAPIView(APIView):
         }
 
         if active_subscription:
-            response["plan_type"] = active_subscription.plan.plan_type,
-            response["expires_at"] = active_subscription.expires_at,
+            response["plan_type"] = active_subscription.plan_type,
+            response["expires_at"] = active_subscription.expiry_date,
             response["active_subscription"] = UserSubscriptionSerializer(active_subscription).data
 
         if active_subscription and active_subscription.is_free_trial:
@@ -331,8 +331,8 @@ class CurrentUserPlanAndProgressAPIView(APIView):
     
     def process_subscription(self, subscription):
         self.response.update({
-            "plan_type": subscription.plan.plan_type,
-            "expires_at": subscription.expires_at,
+            "plan_type": subscription.plan_type,
+            "expires_at": subscription.expiry_date,
             "active_subscription": UserSubscriptionSerializer(subscription).data,
         })
         self.add_progress(

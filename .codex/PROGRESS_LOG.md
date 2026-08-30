@@ -198,3 +198,31 @@ Validation run:
 - `.venv\Scripts\python.exe manage.py test sentdm` passed with 12 tests.
 - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
 - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate` passed; generated `tmp_schema.yml` was removed afterward.
+
+## 2026-08-30 - SUBSCRIPTION FLOW REPLACED WITH IAP RECORDS
+
+Completed:
+
+- Replaced the active subscription API flow with Apple/Google in-app subscription payment records using the existing `UserSubscription` model.
+- Kept the migration non-destructive: legacy plan/payment/invoice/purchase-info tables remain in code/database compatibility, but old plan/purchase endpoints are no longer routed or documented.
+- Added IAP fields to `UserSubscription`: product ID, plan type, medium, purchase token, transaction/original transaction/order IDs, store environment/status, active flag, purchase/expiry dates, amount/currency, verification payload, and app bundle ID.
+- Made `UserSubscription.plan` optional so mobile IAP records do not require backend-managed subscription plans.
+- Replaced active API routes with only:
+  - `GET /api/v1/user-subscription/`
+  - `POST /api/v1/user-subscription/`
+  - `GET /api/v1/user-subscription/{id}/`
+- Admin users can list/retrieve all records through the API; client users can list/retrieve only their own records.
+- Django admin now focuses on `UserSubscription` and allows staff to manually change `is_subscription_active`, `store_status`, and `expiry_date` for testing/support.
+- Updated `SubscriptionValidationService` so Sent.dm paid-access checks use active, unexpired IAP subscription records.
+- Updated current-user and plan-progress responses to read `plan_type` and `expiry_date` from IAP subscription records.
+- Made legacy free-trial expiration task a no-op because free users are dashboard-only in the Sent.dm/IAP flow.
+- Removed old subscription plan/purchase Swagger tags and fallback schema mappings.
+
+Validation run:
+
+- `.venv\Scripts\python.exe -m compileall -q subscription accounts sentdm core` passed.
+- `.venv\Scripts\python.exe manage.py test subscription sentdm` passed with 17 tests.
+- `.venv\Scripts\python.exe manage.py check` passed.
+- `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
+- `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate` passed.
+- Generated schema search confirmed only `/api/v1/user-subscription/` and `/api/v1/user-subscription/{id}/` remain for subscriptions; old `subscription-plans`, `purchase-verify`, and `current-plan` routes are gone.
