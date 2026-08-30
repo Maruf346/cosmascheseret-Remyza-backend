@@ -85,3 +85,31 @@ Validation run:
 Decision:
 
 - Production live send is code-ready but intentionally disabled at URL level until live Sent.dm credentials, approved Sender Profiles, webhook secret, async inbound flow, and real lead/conversation routing are ready.
+
+## 2026-08-30 - SWAGGER TWILIO CLEANUP
+
+Completed:
+
+- Commented Twilio-era URL registrations so they no longer appear in Swagger.
+- Hidden business Twilio subaccount setup/sync endpoints.
+- Hidden business phone-number router endpoints.
+- Hidden core free-trial number inventory endpoints.
+- Hidden core Twilio inbound webhook endpoint.
+- Hidden account free-trial number claim endpoint.
+- Disabled the subscription `claim-free-trail` router action by commenting its `@action` decorator.
+- Removed Twilio/free-trial/phone-number Swagger tag metadata and schema mappings.
+- Left Twilio implementation files, app registration, models, migrations, and config untouched for stability.
+
+Validation run:
+
+- `python manage.py check` passed.
+- `python manage.py test sentdm` passed with 9 tests.
+- `python -m compileall -q accounts business core sentdm cheshara_config` passed.
+- `python -m compileall -q subscription` passed.
+- `python manage.py spectacular --file tmp_schema.yml --validate` completed successfully with only older unrelated schema warnings/errors from existing non-Twilio APIViews.
+- Generated schema search confirmed no Twilio/free-trial-number/phone-number/sub-account paths or old Twilio docs tags remain visible.
+
+Current Swagger direction:
+
+- Sent.dm endpoints remain visible under the `Sent.dm` tag.
+- Twilio-era messaging/number endpoints are kept in code comments but removed from active API docs.

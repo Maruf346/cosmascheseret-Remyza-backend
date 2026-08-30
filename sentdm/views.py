@@ -48,6 +48,15 @@ def get_requested_or_current_profile(user, profile_id=None):
     return None
 
 
+def get_current_profile_or_404(user):
+    profile = SentDMProfile.objects.filter(user=user).first()
+    if not profile and hasattr(user, "organization"):
+        profile = SentDMProfile.objects.filter(organization=user.organization).first()
+    if not profile:
+        raise NotFound("Sent.dm profile not found for current user.")
+    return profile
+
+
 class SentDMAccountCheckAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -102,23 +111,16 @@ class SentDMProfileCreateAPIView(APIView):
 class SentDMCurrentProfileAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get_object(self):
-        profile = SentDMProfile.objects.filter(user=self.request.user).first()
-        if not profile and hasattr(self.request.user, "organization"):
-            profile = SentDMProfile.objects.filter(organization=self.request.user.organization).first()
-        if not profile:
-            raise NotFound("Sent.dm profile not found for current user.")
-        return profile
-
     @extend_schema(responses=SentDMProfileSerializer)
     def get(self, request):
         return Response(
-            {"success": True, "data": SentDMProfileSerializer(self.get_object()).data},
+            {"success": True, "data": SentDMProfileSerializer(get_current_profile_or_404(request.user)).data},
             status=status.HTTP_200_OK,
         )
 
 
-class SentDMProfileCompleteAPIView(SentDMCurrentProfileAPIView):
+class SentDMProfileCompleteAPIView(APIView):
+    permission_classes = [IsAuthenticated]
     serializer_class = SentDMProfileCompleteSerializer
 
     @extend_schema(request=SentDMProfileCompleteSerializer, responses=SentDMAccountCheckSerializer)
@@ -126,7 +128,7 @@ class SentDMProfileCompleteAPIView(SentDMCurrentProfileAPIView):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         profile_id = serializer.validated_data.get("profile_id")
-        profile = SentDMProfile.objects.filter(profile_id=profile_id).first() if profile_id else self.get_object()
+        profile = SentDMProfile.objects.filter(profile_id=profile_id).first() if profile_id else get_current_profile_or_404(request.user)
         if not profile:
             raise NotFound("Sent.dm profile not found.")
 

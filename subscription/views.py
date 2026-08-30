@@ -8,18 +8,17 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsClientUser
 from .choices import SubscriptionStatus, PaymentStatus, PlanType
-from common.choices import Status
-from django.db.models import Q
-from rest_framework.exceptions import ValidationError
-from subscription.services.purchase import SubscriptionPurchaseService, SubscriptionValidationService
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+from subscription.services.purchase import SubscriptionPurchaseService, SubscriptionValidationService
 
 
 class SubscriptionPlanViewSet(OwnModelViewSet):
     serializer_class = SubscriptionPlanSerializer
     permission_classes = [AdminWritePermission]
     queryset = SubscriptionPlan.objects.filter(is_active=True).order_by("price", "name")
+
 
 class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
     serializer_class = UserSubscriptionSerializer
@@ -83,7 +82,8 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
                 }, status=status.HTTP_201_CREATED,
             )
 
-    @action(detail=False, methods=["post"], url_path="claim-free-trail")
+    # Twilio-backed free-trial subscription route is hidden during Sent.dm migration.
+    # @action(detail=False, methods=["post"], url_path="claim-free-trail")
     def claim_free_trail(self, request):
         with transaction.atomic():
             user_subscription = UserSubscription.objects.filter(
@@ -112,7 +112,6 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
             return Response(
                 {
                     "success": True,
-                    "message": "Subscription purchase initiated successfully.",
                     "message": "Free Trail Subscription Claim successfully.",
                     "data": {
                         "subscription": UserSubscriptionSerializer(subscription_data["subscription"]).data
@@ -125,11 +124,11 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
         with transaction.atomic():
             serializer = VerifyPurchaseSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            
+
             subscription = serializer.validated_data["subscription_plan_uuid"]
             platform = serializer.validated_data["platform"]
             purchase_token = serializer.validated_data["purchase_token"]
-            
+
             if subscription.status != SubscriptionStatus.AWAITING_PAYMENT:
                 raise ValidationError("Subscription is already processed")
 
@@ -144,7 +143,7 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
             user_free_trail = UserSubscription.objects.filter(user=self.request.user, plan__plan_type=PlanType.FREE_TRAIL)
             user_free_trail.first().release_free_trial() if user_free_trail.exists() else None
 
-            purchase_info, created = PurchaseInfo.objects.get_or_create(
+            PurchaseInfo.objects.get_or_create(
                 payment=payment,
                 defaults={
                     "user": self.request.user,
@@ -152,7 +151,7 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
                     "purchase_token": purchase_token
                 }
             )
-            
+
             return Response(
                 {
                     "success": True,
@@ -161,8 +160,6 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
                 },
                 status=status.HTTP_200_OK,
             )
-
-    
 
     # @action(detail=True, methods=["delete"])
     # def remove(self, request, pk=None):
@@ -180,5 +177,3 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
     #         },
     #         status=status.HTTP_200_OK,
     #     )
-
-
