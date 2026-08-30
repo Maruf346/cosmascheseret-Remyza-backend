@@ -114,6 +114,26 @@ class SentDMProfileCreateAPIView(APIView):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        existing_profile = get_profile_for_user(request.user)
+        if existing_profile:
+            raise ValidationError(
+                {
+                    "profile": "A Sent.dm Sender Profile already exists for this user or business.",
+                    "profile_id": existing_profile.profile_id,
+                    "status": existing_profile.status,
+                }
+            )
+
+        readiness = get_sentdm_profile_creation_readiness(request.user)
+        if not readiness["ready"]:
+            raise ValidationError(
+                {
+                    "detail": "Business compliance profile is not ready for Sent.dm Sender Profile creation.",
+                    "missing_fields": readiness["missing_fields"],
+                    "messages": readiness["messages"],
+                }
+            )
+
         try:
             profile, response = create_profile_for_user(request.user, serializer.validated_data)
             return Response(

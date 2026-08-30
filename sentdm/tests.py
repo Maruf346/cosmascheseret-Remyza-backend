@@ -3,12 +3,20 @@ import hmac
 import time
 from unittest.mock import patch
 
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from datetime import timedelta
+
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from accounts.models import User
+from business.models import Organization
+from subscription.models import UserSubscription
+
 from .client import SentDMClient
+from .models import SentDMProfile
 from .services import build_10dlc_campaign_payload, build_profile_payload, normalize_message_status, normalize_profile_status, verify_webhook_signature
-from .views import SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
+from .views import SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
 class DummyUser:
@@ -185,3 +193,55 @@ class SentDMStatusTests(SimpleTestCase):
 
     def test_normalize_message_status_falls_back_for_unknown_values(self):
         self.assertEqual(normalize_message_status({"data": {"status": "mystery"}}), "queued")
+class SentDMProfileCreateGuardTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create(
+            phone_number="+15550000001",
+            email="agent@example.com",
+            full_name="Test Agent",
+        )
+        self.organization = Organization.objects.create(
+            owner=self.user,
+            name="Test Business",
+            email="team@example.com",
+        )
+        UserSubscription.objects.create(
+            user=self.user,
+            organization=self.organization,
+            product_id="chesera.monthly",
+            plan_type="monthly",
+            medium="apple",
+            transaction_id="txn-profile-guard",
+            is_subscription_active=True,
+            expiry_date=timezone.now() + timedelta(days=30),
+        )
+
+    @patch("sentdm.services.SentDMClient")
+    def test_create_profile_requires_business_compliance_fields(self, mocked_client):
+        request = self.factory.post("/api/v1/sentdm/profiles/create/", {}, format="json")
+        force_authenticate(request, user=self.user)
+
+        response = SentDMProfileCreateAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("missing_fields", response.data)
+        self.assertIn("sentdm_legal_name", response.data["missing_fields"])
+        mocked_client.assert_not_called()
+
+    @patch("sentdm.services.SentDMClient")
+    def test_create_profile_rejects_existing_sender_profile(self, mocked_client):
+        SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_existing",
+            name="Existing Profile",
+        )
+        request = self.factory.post("/api/v1/sentdm/profiles/create/", {}, format="json")
+        force_authenticate(request, user=self.user)
+
+        response = SentDMProfileCreateAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["profile_id"], "profile_existing")
+        mocked_client.assert_not_called()

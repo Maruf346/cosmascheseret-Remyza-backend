@@ -191,6 +191,42 @@ def get_sentdm_compliance_readiness(user, profile_id=None):
     }
 
 
+
+
+def get_sentdm_profile_creation_readiness(user):
+    organization = get_organization_for_user(user)
+    missing_fields = []
+
+    if not organization:
+        return {
+            "ready": False,
+            "missing_fields": ["organization"],
+            "messages": {"organization": "Business profile is required before creating a Sent.dm Sender Profile."},
+            "sample_message_count": 0,
+            "messaging_use_case_us": "",
+        }
+
+    messages = {}
+    for field, message in SENTDM_10DLC_REQUIRED_FIELDS.items():
+        if field == "sentdm_profile":
+            continue
+        if not str(getattr(organization, field, "") or "").strip():
+            missing_fields.append(field)
+            messages[field] = message
+
+    use_case = str(getattr(organization, "sentdm_messaging_use_case_us", "") or "").upper()
+    sample_messages = get_sentdm_sample_messages(organization)
+    if use_case in SENTDM_TWO_SAMPLE_USE_CASES and len(sample_messages) < 2:
+        missing_fields.append("sentdm_sample_message_2")
+        messages["sentdm_sample_message_2"] = "Marketing, mixed, and low-volume campaigns require at least two realistic sample messages."
+
+    return {
+        "ready": not missing_fields,
+        "missing_fields": missing_fields,
+        "messages": messages,
+        "sample_message_count": len(sample_messages),
+        "messaging_use_case_us": use_case,
+    }
 def get_sentdm_sample_messages(organization):
     return [
         str(getattr(organization, field, "") or "").strip()

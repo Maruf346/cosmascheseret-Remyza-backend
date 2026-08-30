@@ -282,3 +282,16 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test accounts subscription sentdm`
   - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
   - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+## 2026-08-30 - Sent.dm Paid Onboarding Guard
+
+- Added a Sent.dm profile-creation readiness check before calling the provider.
+- `/api/v1/sentdm/profiles/create/` now stops early with clear `missing_fields` and per-field messages when the paid user has not completed the required business/10DLC compliance fields.
+- The same endpoint now rejects duplicate Sender Profile creation with the existing `profile_id` and status, instead of silently creating another profile or calling Sent.dm again.
+- Free users remain dashboard-only through `HasActivePaidSubscription`; paid users must also have a complete business compliance profile before Sender Profile creation.
+- Added tests for missing compliance fields and duplicate profile handling.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm`
+  - `.venv\Scripts\python.exe manage.py test accounts subscription sentdm`
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
