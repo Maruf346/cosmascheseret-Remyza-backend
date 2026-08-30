@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from .models import (
     Organization, BusinessSetting, UserNotificationSettings, ProviderAccount, PhoneNumber
@@ -45,9 +46,9 @@ class UpdateBusinessSettingSerializer(serializers.ModelSerializer):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     logo = serializers.SerializerMethodField()
-    lead_count = serializers.ReadOnlyField()
-    has_phone_number = serializers.ReadOnlyField()
-    has_business_hours = serializers.ReadOnlyField()
+    lead_count = serializers.IntegerField(read_only=True)
+    has_phone_number = serializers.BooleanField(read_only=True)
+    has_business_hours = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Organization
@@ -59,6 +60,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         data["industry"] = (instance.industry.name if instance.industry else None)
         return data
     
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_logo(self, obj):
         if not obj.logo:
             return None

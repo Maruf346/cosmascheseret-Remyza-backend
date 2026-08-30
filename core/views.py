@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework.viewsets import ModelViewSet
 from core.utils.viewsets import OwnModelViewSet
 from .models import BusinessType, Industry
@@ -514,3 +515,86 @@ class TwilioWebhookHandler(APIView):
             status=status.HTTP_200_OK,
         )
 
+BusinessTypeViewSet = extend_schema_view(
+    list=extend_schema(
+        tags=["Reference Data"],
+        summary="List business types",
+        description="Returns active business type options used during business profile setup.",
+        responses={200: BusinessTypeSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=["Reference Data"],
+        summary="Get business type",
+        description="Returns one business type by ID.",
+        responses={200: BusinessTypeSerializer, 404: OpenApiResponse(description="Business type not found.")},
+    ),
+    create=extend_schema(
+        tags=["Reference Data"],
+        summary="Create business type",
+        description="Creates a business type option. Admin access is required.",
+        request=BusinessTypeSerializer,
+        responses={201: BusinessTypeSerializer, 400: OpenApiResponse(description="Invalid business type data.")},
+    ),
+    update=extend_schema(
+        tags=["Reference Data"],
+        summary="Update business type",
+        description="Updates a business type option. Admin access is required.",
+        request=BusinessTypeSerializer,
+        responses={200: BusinessTypeSerializer, 400: OpenApiResponse(description="Invalid business type data.")},
+    ),
+    partial_update=extend_schema(
+        tags=["Reference Data"],
+        summary="Partially update business type",
+        description="Partially updates a business type option. Admin access is required.",
+        request=BusinessTypeSerializer,
+        responses={200: BusinessTypeSerializer, 400: OpenApiResponse(description="Invalid business type data.")},
+    ),
+    destroy=extend_schema(
+        tags=["Reference Data"],
+        summary="Delete business type",
+        description="Deletes a business type option. Admin access is required.",
+        responses={200: OpenApiResponse(description="Business type deleted successfully.")},
+    ),
+)(BusinessTypeViewSet)
+
+IndustryViewSet = extend_schema_view(
+    list=extend_schema(
+        tags=["Reference Data"],
+        summary="List industries",
+        description="Returns active industry options used during business profile setup.",
+        responses={200: IndustrySerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=["Reference Data"],
+        summary="Get industry",
+        description="Returns one industry by ID.",
+        responses={200: IndustrySerializer, 404: OpenApiResponse(description="Industry not found.")},
+    ),
+    create=extend_schema(
+        tags=["Reference Data"],
+        summary="Create industry",
+        description="Creates an industry option. Admin access is required.",
+        request=IndustrySerializer,
+        responses={201: IndustrySerializer, 400: OpenApiResponse(description="Invalid industry data.")},
+    ),
+    update=extend_schema(
+        tags=["Reference Data"],
+        summary="Update industry",
+        description="Updates an industry option. Admin access is required.",
+        request=IndustrySerializer,
+        responses={200: IndustrySerializer, 400: OpenApiResponse(description="Invalid industry data.")},
+    ),
+    partial_update=extend_schema(
+        tags=["Reference Data"],
+        summary="Partially update industry",
+        description="Partially updates an industry option. Admin access is required.",
+        request=IndustrySerializer,
+        responses={200: IndustrySerializer, 400: OpenApiResponse(description="Invalid industry data.")},
+    ),
+    destroy=extend_schema(
+        tags=["Reference Data"],
+        summary="Delete industry",
+        description="Deletes an industry option. Admin access is required.",
+        responses={200: OpenApiResponse(description="Industry deleted successfully.")},
+    ),
+)(IndustryViewSet)

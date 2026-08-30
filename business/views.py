@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -872,4 +873,97 @@ class UserNotificationSettingsViewSet(GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
+BusinessProfileSetupAPIView = extend_schema_view(
+    post=extend_schema(
+        tags=["Business"],
+        summary="Create business profile",
+        description="Creates the authenticated user's business profile and initializes default business settings.",
+        request=OrganizationSetupSerializer,
+        responses={
+            201: OrganizationSetupSerializer,
+            400: OpenApiResponse(description="Business profile already exists or request data is invalid."),
+            401: OpenApiResponse(description="Authentication required."),
+        },
+    ),
+)(BusinessProfileSetupAPIView)
 
+UserBusinessProfileAPIView = extend_schema_view(
+    get=extend_schema(
+        tags=["Business"],
+        summary="Get current business profile",
+        description="Returns the authenticated user's business profile with related provider and messaging-number metadata when present.",
+        responses={
+            200: OrganizationSerializer,
+            404: OpenApiResponse(description="Business profile not found."),
+        },
+    ),
+    patch=extend_schema(
+        tags=["Business"],
+        summary="Update current business profile",
+        description="Partially updates the authenticated user's business profile.",
+        request=OrganizationSerializer,
+        responses={
+            200: OrganizationSerializer,
+            400: OpenApiResponse(description="Invalid business profile data."),
+            404: OpenApiResponse(description="Business profile not found."),
+        },
+    ),
+)(UserBusinessProfileAPIView)
+
+UserBusinessOnboardingAPIView = extend_schema_view(
+    get=extend_schema(
+        tags=["Business"],
+        summary="Get business onboarding status",
+        description="Returns the current onboarding step for the authenticated user's business profile.",
+        responses={
+            200: OpenApiResponse(description="Onboarding status returned successfully."),
+            404: OpenApiResponse(description="Business profile not found."),
+        },
+    ),
+)(UserBusinessOnboardingAPIView)
+
+UserBusinessSettingAPIView = extend_schema_view(
+    get=extend_schema(
+        tags=["Business"],
+        summary="Get business reply settings",
+        description="Returns AI reply and automation settings for the authenticated user's business.",
+        responses={
+            200: UpdateBusinessSettingSerializer,
+            404: OpenApiResponse(description="Business settings not found."),
+        },
+    ),
+    patch=extend_schema(
+        tags=["Business"],
+        summary="Update business reply settings",
+        description="Partially updates reply tone, auto-reply behavior, reply speed, and follow-up automation settings.",
+        request=UpdateBusinessSettingSerializer,
+        responses={
+            200: UpdateBusinessSettingSerializer,
+            400: OpenApiResponse(description="Invalid business settings data."),
+            404: OpenApiResponse(description="Business settings not found."),
+        },
+    ),
+)(UserBusinessSettingAPIView)
+
+UserNotificationSettingsViewSet = extend_schema_view(
+    current=extend_schema(
+        tags=["Notifications"],
+        summary="Get notification settings",
+        description="Returns notification preferences for the authenticated user and organization.",
+        responses={200: UserNotificationSettingsSerializer},
+    ),
+    update_all_notification=extend_schema(
+        tags=["Notifications"],
+        summary="Toggle all notifications",
+        description="Enables or disables all notification settings together.",
+        request=UserNotificationSettingsSerializer,
+        responses={200: UserNotificationSettingsSerializer, 400: OpenApiResponse(description="Invalid notification payload.")},
+    ),
+    toggle=extend_schema(
+        tags=["Notifications"],
+        summary="Toggle one notification field",
+        description="Updates one supported notification preference field by name.",
+        request=NotificationToggleSerializer,
+        responses={200: UserNotificationSettingsSerializer, 400: OpenApiResponse(description="Invalid field name or value.")},
+    ),
+)(UserNotificationSettingsViewSet)

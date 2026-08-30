@@ -100,6 +100,9 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Reference Data', 'description': 'Business type and industry reference data.'},
         {'name': 'API Schema', 'description': 'OpenAPI schema endpoint used by Swagger and ReDoc.'},
     ],
+    'ENUM_NAME_OVERRIDES': {
+        'SubscriptionBillingCycleEnum': 'subscription.choices.BillingCycle.choices',
+    },
     'SECURITY': [{'BearerAuth': []}],
     'COMPONENTS': {
         'SECURITY_SCHEMES': {

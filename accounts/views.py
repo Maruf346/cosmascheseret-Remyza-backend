@@ -1,9 +1,11 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework import response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer, TokenVerifySerializer
 from rest_framework_simplejwt.views import (
     TokenRefreshView,
     TokenVerifyView,
@@ -450,4 +452,101 @@ class CurrentUserPlanAndProgressAPIView(APIView):
             "data": self.response,
         })
 
+ClientSendOTPAPIView = extend_schema_view(
+    post=extend_schema(
+        tags=["Auth - User"],
+        summary="Send login OTP",
+        description="Creates or finds a client user by phone number and starts an OTP login session.",
+        request=ClientSendOTPSerializer,
+        responses={
+            200: OpenApiResponse(description="OTP session created successfully."),
+            400: OpenApiResponse(description="Invalid phone number or request payload."),
+        },
+    ),
+)(ClientSendOTPAPIView)
 
+ClientVerifyOTPAPIView = extend_schema_view(
+    post=extend_schema(
+        tags=["Auth - User"],
+        summary="Verify login OTP",
+        description="Verifies the latest unused OTP for the phone number and returns JWT access and refresh tokens.",
+        request=ClientVerifyOTPSerializer,
+        responses={
+            200: OpenApiResponse(description="OTP verified. JWT tokens and user profile returned."),
+            400: OpenApiResponse(description="OTP not found, expired, already used, or invalid."),
+        },
+    ),
+)(ClientVerifyOTPAPIView)
+
+AdminLoginAPIView = extend_schema_view(
+    post=extend_schema(
+        tags=["Auth - Admin"],
+        summary="Admin login",
+        description="Authenticates a staff/admin user with phone number and password. Returns JWT access and refresh tokens.",
+        request=AdminLoginSerializer,
+        responses={
+            200: OpenApiResponse(description="Admin authenticated successfully."),
+            400: OpenApiResponse(description="Invalid credentials or user is not staff."),
+        },
+    ),
+)(AdminLoginAPIView)
+
+CustomTokenRefreshView = extend_schema_view(
+    post=extend_schema(
+        tags=["Auth - Token"],
+        summary="Refresh JWT token",
+        description="Accepts a valid refresh token and returns a fresh access token.",
+        request=TokenRefreshSerializer,
+        responses={
+            200: OpenApiResponse(description="Token refreshed successfully."),
+            401: OpenApiResponse(description="Refresh token is invalid or expired."),
+        },
+    ),
+)(CustomTokenRefreshView)
+
+CustomTokenVerifyView = extend_schema_view(
+    post=extend_schema(
+        tags=["Auth - Token"],
+        summary="Verify JWT token",
+        description="Checks whether a JWT token is currently valid.",
+        request=TokenVerifySerializer,
+        responses={
+            200: OpenApiResponse(description="Token is valid."),
+            401: OpenApiResponse(description="Token is invalid or expired."),
+        },
+    ),
+)(CustomTokenVerifyView)
+
+CurrentUserAPIView = extend_schema_view(
+    get=extend_schema(
+        tags=["User Account"],
+        summary="Get current user",
+        description="Returns the authenticated user's profile, subscription state, and related onboarding metadata.",
+        responses={200: CurrentUserSerializer, 401: OpenApiResponse(description="Authentication required.")},
+    ),
+    patch=extend_schema(
+        tags=["User Account"],
+        summary="Update current user",
+        description="Partially updates the authenticated user's profile fields.",
+        request=CurrentUserSerializer,
+        responses={200: CurrentUserSerializer, 400: OpenApiResponse(description="Invalid profile data.")},
+    ),
+    delete=extend_schema(
+        tags=["User Account"],
+        summary="Delete current user",
+        description="Deletes the authenticated user account.",
+        responses={200: OpenApiResponse(description="User account deleted successfully.")},
+    ),
+)(CurrentUserAPIView)
+
+CurrentUserPlanAndProgressAPIView = extend_schema_view(
+    get=extend_schema(
+        tags=["User Plan Progress"],
+        summary="Get plan and onboarding progress",
+        description="Returns the paid subscription status and current setup progress for the authenticated user.",
+        responses={
+            200: OpenApiResponse(description="Plan and progress returned successfully."),
+            404: OpenApiResponse(description="No active paid subscription found."),
+        },
+    ),
+)(CurrentUserPlanAndProgressAPIView)

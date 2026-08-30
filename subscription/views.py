@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from core.utils.viewsets import OwnModelViewSet, OwnReadOnlyModelViewSet
 from .models import SubscriptionPlan, UserSubscription, PurchaseInfo
 from core.permissions import AdminWritePermission
@@ -25,6 +26,8 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated, IsClientUser]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return UserSubscription.objects.none()
         return (
             UserSubscription.objects
             .select_related("plan", "organization")
@@ -177,3 +180,86 @@ class UserSubscriptionViewSet(OwnReadOnlyModelViewSet):
     #         },
     #         status=status.HTTP_200_OK,
     #     )
+
+SubscriptionPlanViewSet = extend_schema_view(
+    list=extend_schema(
+        tags=["Subscription Plans"],
+        summary="List subscription plans",
+        description="Returns active subscription plans ordered by price and name.",
+        responses={200: SubscriptionPlanSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=["Subscription Plans"],
+        summary="Get subscription plan",
+        description="Returns one subscription plan by ID.",
+        responses={200: SubscriptionPlanSerializer, 404: OpenApiResponse(description="Subscription plan not found.")},
+    ),
+    create=extend_schema(
+        tags=["Subscription Plans"],
+        summary="Create subscription plan",
+        description="Creates a subscription plan. Admin access is required.",
+        request=SubscriptionPlanSerializer,
+        responses={201: SubscriptionPlanSerializer, 400: OpenApiResponse(description="Invalid subscription plan data.")},
+    ),
+    update=extend_schema(
+        tags=["Subscription Plans"],
+        summary="Update subscription plan",
+        description="Updates a subscription plan. Admin access is required.",
+        request=SubscriptionPlanSerializer,
+        responses={200: SubscriptionPlanSerializer, 400: OpenApiResponse(description="Invalid subscription plan data.")},
+    ),
+    partial_update=extend_schema(
+        tags=["Subscription Plans"],
+        summary="Partially update subscription plan",
+        description="Partially updates a subscription plan. Admin access is required.",
+        request=SubscriptionPlanSerializer,
+        responses={200: SubscriptionPlanSerializer, 400: OpenApiResponse(description="Invalid subscription plan data.")},
+    ),
+    destroy=extend_schema(
+        tags=["Subscription Plans"],
+        summary="Delete subscription plan",
+        description="Deletes a subscription plan. Admin access is required.",
+        responses={200: OpenApiResponse(description="Subscription plan deleted successfully.")},
+    ),
+)(SubscriptionPlanViewSet)
+
+UserSubscriptionViewSet = extend_schema_view(
+    list=extend_schema(
+        tags=["User Subscriptions"],
+        summary="List user subscriptions",
+        description="Returns subscriptions belonging to the authenticated client user.",
+        responses={200: UserSubscriptionSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=["User Subscriptions"],
+        summary="Get user subscription",
+        description="Returns one subscription belonging to the authenticated client user.",
+        responses={200: UserSubscriptionSerializer, 404: OpenApiResponse(description="Subscription not found.")},
+    ),
+    current_plan=extend_schema(
+        tags=["User Subscriptions"],
+        summary="Get current active plan",
+        description="Returns the authenticated user's current active subscription, or null when there is no active plan.",
+        responses={200: UserSubscriptionSerializer},
+    ),
+    purchase=extend_schema(
+        tags=["Subscription Purchase"],
+        summary="Start subscription purchase",
+        description="Creates an awaiting-payment subscription and payment record for the selected paid plan.",
+        request=PurchaseSubscriptionSerializer,
+        responses={
+            201: OpenApiResponse(description="Subscription purchase initiated successfully."),
+            400: OpenApiResponse(description="Invalid plan, free-trial plan selected, or purchase could not be created."),
+        },
+    ),
+    purchase_verify=extend_schema(
+        tags=["Subscription Purchase"],
+        summary="Verify subscription purchase",
+        description="Verifies a platform purchase token/receipt and activates the pending subscription.",
+        request=VerifyPurchaseSerializer,
+        responses={
+            200: UserSubscriptionSerializer,
+            400: OpenApiResponse(description="Subscription is already processed or purchase data is invalid."),
+        },
+    ),
+)(UserSubscriptionViewSet)

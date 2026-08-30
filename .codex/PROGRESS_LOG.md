@@ -113,3 +113,31 @@ Current Swagger direction:
 
 - Sent.dm endpoints remain visible under the `Sent.dm` tag.
 - Twilio-era messaging/number endpoints are kept in code comments but removed from active API docs.
+
+## 2026-08-30 - VIEW-LEVEL SWAGGER DOCUMENTATION
+
+Completed:
+
+- Added view-level drf-spectacular documentation for active API endpoints using `extend_schema` and `extend_schema_view`.
+- Documented active auth endpoints under `Auth - User`, `Auth - Admin`, and `Auth - Token`.
+- Documented current user and plan/progress endpoints.
+- Documented active business profile, business settings, onboarding status, and notification endpoints.
+- Documented active reference-data endpoints for business types and industries.
+- Documented subscription plan, user subscription, purchase, and purchase verification endpoints.
+- Expanded Sent.dm endpoint docs with clear sandbox/live behavior, Sender Profile onboarding, and webhook descriptions.
+- Kept disabled Twilio-era routes out of active docs.
+- Added serializer field schema hints for computed business/subscription fields.
+- Added a schema-safe queryset guard for user subscriptions.
+- Added a drf-spectacular enum override for the shared subscription billing cycle enum.
+
+Validation run:
+
+- `python manage.py check` passed.
+- `python manage.py test sentdm` passed with 9 tests.
+- `python -m compileall -q accounts business core subscription sentdm cheshara_config` passed.
+- `python manage.py spectacular --file tmp_schema.yml --validate` passed with 0 warnings and 0 errors.
+
+Current Swagger state:
+
+- Documentation now comes from view-level annotations for the active API surface.
+- `core/schema.py` remains as a fallback grouping layer for future endpoints that may not yet have explicit tags.
