@@ -29,6 +29,15 @@ class OrganizationAdmin(admin.ModelAdmin):
     fieldsets = (
         ("Organization Information", {"fields": ("owner", "name", "status", "country", "logo")}),
         ("Business Information", {"fields": ("business_type", "industry", "business_registration_identifier", "business_registration_number", "description", "website", "email", "business_hours")}),
+        ("Sent.dm Compliance", {"fields": (
+            "sentdm_legal_name", "sentdm_tax_id", "sentdm_vertical", "sentdm_authorized_rep_name",
+            "sentdm_authorized_rep_title", "sentdm_authorized_rep_email", "sentdm_authorized_rep_phone",
+            "sentdm_support_email", "sentdm_support_phone", "sentdm_privacy_policy_url", "sentdm_terms_url",
+            "sentdm_opt_in_url", "sentdm_opt_in_description", "sentdm_messaging_use_case",
+            "sentdm_sample_message_1", "sentdm_sample_message_2", "sentdm_sample_message_3",
+            "sentdm_opt_in_confirmation_message", "sentdm_opt_out_confirmation_message",
+            "sentdm_help_response_message", "sentdm_expected_monthly_volume",
+        )}),
         ("Onboarding", {"fields": ("is_verified", "is_demo", "is_onboarding_completed", "onboarding_step")}),
         ("System Information", {"classes": ("collapse",), "fields": ("created_at", "updated_at")}),
     )

@@ -9,23 +9,9 @@ from rest_framework.views import APIView
 
 from .client import SentDMClient, SentDMClientError
 from .models import SentDMProfile
-from .serializers import (
-    SentDMAccountCheckSerializer,
-    SentDMMessageSerializer,
-    SentDMProfileCompleteSerializer,
-    SentDMProfileCreateSerializer,
-    SentDMProfileSerializer,
-    SentDMWebhookEventSerializer,
-    SentDMSendSandboxMessageSerializer,
-)
-from .services import (
-    complete_profile,
-    create_profile_for_user,
-    create_webhook_event,
-    normalize_profile_status,
-    send_live_message,
-    send_sandbox_message,
-)
+from .permissions import HasActivePaidSubscription
+from .serializers import *
+from .services import *
 
 
 def sentdm_error_response(exc):
@@ -73,12 +59,12 @@ def get_current_profile_or_404(user):
 
 
 class SentDMAccountCheckAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
 
     @extend_schema(
         tags=["Sent.dm"],
         summary="Check Sent.dm account",
-        description="Calls Sent.dm `/me` with the configured API key. Use this to confirm the key is valid and inspect account/channel/profile readiness.",
+        description="Calls Sent.dm `/me` with the configured API key. Paid subscription is required because free users are dashboard-only and cannot activate messaging.",
         responses={
             200: SentDMAccountCheckSerializer,
             500: OpenApiResponse(description="Sent.dm API key or base URL is not configured."),
@@ -94,12 +80,12 @@ class SentDMAccountCheckAPIView(APIView):
 
 
 class SentDMProfileListAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
 
     @extend_schema(
         tags=["Sent.dm"],
         summary="List Sent.dm Sender Profiles",
-        description="Lists Sender Profiles available to the configured Sent.dm API key. In sandbox mode this can be used to validate the endpoint shape.",
+        description="Lists Sender Profiles available to the configured Sent.dm API key. Paid subscription is required because free users are dashboard-only and cannot activate messaging.",
         responses={200: SentDMAccountCheckSerializer, 400: OpenApiResponse(description="Sent.dm returned an error.")},
     )
     def get(self, request):
@@ -111,13 +97,13 @@ class SentDMProfileListAPIView(APIView):
 
 
 class SentDMProfileCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
     serializer_class = SentDMProfileCreateSerializer
 
     @extend_schema(
         tags=["Sent.dm"],
         summary="Create Sender Profile",
-        description="Creates a Sent.dm Sender Profile for the authenticated user's organization. When `SENTDM_SANDBOX_MODE=True`, the request is sent with `sandbox: true` and no real profile is provisioned.",
+        description="Creates a Sent.dm Sender Profile for the authenticated user's organization. Requires an active paid subscription. When `SENTDM_SANDBOX_MODE=True`, the request is sent with `sandbox: true` and no real profile is provisioned.",
         request=SentDMProfileCreateSerializer,
         responses={
             201: SentDMProfileSerializer,
@@ -147,12 +133,12 @@ class SentDMProfileCreateAPIView(APIView):
 
 
 class SentDMCurrentProfileAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
 
     @extend_schema(
         tags=["Sent.dm"],
         summary="Get current Sender Profile",
-        description="Returns the Sent.dm Sender Profile stored for the authenticated user or their organization.",
+        description="Returns the Sent.dm Sender Profile stored for the authenticated user or their organization. Requires an active paid subscription.",
         responses={200: SentDMProfileSerializer, 404: OpenApiResponse(description="No Sender Profile exists for the current user.")},
     )
     def get(self, request):
@@ -163,13 +149,13 @@ class SentDMCurrentProfileAPIView(APIView):
 
 
 class SentDMProfileCompleteAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
     serializer_class = SentDMProfileCompleteSerializer
 
     @extend_schema(
         tags=["Sent.dm"],
         summary="Complete Sender Profile onboarding",
-        description="Requests Sent.dm to complete/onboard a Sender Profile and registers Chesera's profile-ready webhook URL. Sandbox mode simulates the completion flow.",
+        description="Requests Sent.dm to complete/onboard a Sender Profile and registers Chesera's profile-ready webhook URL. Requires an active paid subscription. Sandbox mode simulates the completion flow.",
         request=SentDMProfileCompleteSerializer,
         responses={
             200: SentDMAccountCheckSerializer,
@@ -204,13 +190,13 @@ class SentDMProfileCompleteAPIView(APIView):
 
 
 class SentDMSendSandboxMessageAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
     serializer_class = SentDMSendSandboxMessageSerializer
 
     @extend_schema(
         tags=["Sent.dm"],
         summary="Send sandbox message",
-        description="Sends a sandbox Sent.dm message request for integration testing. This endpoint is blocked unless `SENTDM_SANDBOX_MODE=True`.",
+        description="Sends a sandbox Sent.dm message request for paid-user integration testing. This endpoint is blocked unless `SENTDM_SANDBOX_MODE=True`.",
         request=SentDMSendSandboxMessageSerializer,
         responses={
             202: SentDMMessageSerializer,
@@ -250,13 +236,13 @@ class SentDMSendSandboxMessageAPIView(APIView):
 
 
 class SentDMSendMessageAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
     serializer_class = SentDMSendSandboxMessageSerializer
 
     @extend_schema(
         tags=["Sent.dm"],
         summary="Send live message",
-        description="Prepared production send endpoint. It is not currently routed in `sentdm/urls.py`; enable only after live Sent.dm credentials, approved Sender Profiles, webhook secret, and lead/conversation routing are ready.",
+        description="Prepared production send endpoint. Requires an active paid subscription. It is not currently routed in `sentdm/urls.py`; enable only after live Sent.dm credentials, approved Sender Profiles, webhook secret, and lead/conversation routing are ready.",
         request=SentDMSendSandboxMessageSerializer,
         responses={
             202: SentDMMessageSerializer,

@@ -156,3 +156,23 @@ Validation run:
 - `.venv\Scripts\python.exe -m compileall -q sentdm` passed.
 - `.venv\Scripts\python.exe manage.py test sentdm` passed with 10 tests.
 - `.venv\Scripts\python.exe manage.py check` passed.
+
+## 2026-08-30 - SENT.DM PAID ACCESS AND COMPLIANCE FIELDS
+
+Completed:
+
+- Added Sent.dm/10DLC compliance fields to `business.Organization` for legal name, tax ID, vertical, authorized representative, support contact, policy URLs, opt-in details, sample messages, autoresponses, and expected volume.
+- Exposed the new fields through business profile setup/update serializers and Django admin under `Sent.dm Compliance`.
+- Added `business/migrations/0030_organization_sentdm_compliance_fields.py`.
+- Added `sentdm.permissions.HasActivePaidSubscription` using the existing `SubscriptionValidationService.get_paid_active_subscription(user)` source of truth.
+- Applied the paid-subscription gate to all authenticated Sent.dm control endpoints while leaving inbound/profile-ready webhooks public for Sent.dm delivery.
+- Kept profile creation manual/frontend-triggered for now; no subscription webhook or automatic activation trigger added yet.
+- Kept OTP migration out of scope for now.
+
+Validation run:
+
+- `.venv\Scripts\python.exe -m compileall -q business sentdm` passed.
+- `.venv\Scripts\python.exe manage.py check` passed.
+- `.venv\Scripts\python.exe manage.py test sentdm` passed with 11 tests.
+- `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
+- `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate` passed; generated `tmp_schema.yml` was removed afterward.

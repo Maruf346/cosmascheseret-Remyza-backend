@@ -37,37 +37,40 @@ def build_profile_payload(organization, user, overrides=None):
     overrides = overrides or {}
     name = getattr(organization, "name", "") or user.full_name or user.phone_number
     email = getattr(organization, "email", "") or user.email or ""
+    legal_name = getattr(organization, "sentdm_legal_name", "") or name
+    support_email = getattr(organization, "sentdm_support_email", "") or email
+    authorized_rep_name = getattr(organization, "sentdm_authorized_rep_name", "") or user.full_name or name
+    vertical = getattr(organization, "sentdm_vertical", "") or "PROFESSIONAL"
 
     payload = {
         "name": overrides.get("name") or name,
         "short_name": overrides.get("short_name") or build_short_name(name, fallback=f"USR{user.id}"),
         "description": overrides.get("description") or f"Chesera messaging profile for {name}",
-        "email": overrides.get("email") or email,
+        "email": overrides.get("email") or support_email,
         "inherit_contacts": False,
         "inherit_templates": False,
         "billing_model": "organization",
     }
 
     website = getattr(organization, "website", "")
-    if website or email:
+    if website or support_email:
         payload["brand"] = {
             "contact": {
-                "name": user.full_name or name,
-                "businessName": name,
-                "email": overrides.get("email") or email,
+                "name": authorized_rep_name,
+                "businessName": legal_name,
+                "email": overrides.get("email") or support_email,
             },
             "business": {
-                "legalName": name,
+                "legalName": legal_name,
                 "country": getattr(organization, "country", "US") or "US",
             },
             "compliance": {
-                "vertical": "PROFESSIONAL",
+                "vertical": vertical,
                 "brandRelationship": "SMALL_ACCOUNT",
                 "isTcrApplication": True,
             },
         }
     return payload
-
 
 def upsert_profile_from_response(response, *, user=None, organization=None):
     data = response.get("data") or {}

@@ -1,13 +1,14 @@
 import hashlib
 import hmac
 import time
+from unittest.mock import patch
 
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .client import SentDMClient
 from .services import build_profile_payload, normalize_message_status, normalize_profile_status, verify_webhook_signature
-from .views import SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
+from .views import SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
 class DummyUser:
@@ -62,7 +63,8 @@ class SentDMSendModeGuardTests(SimpleTestCase):
         self.user = DummyUser()
 
     @override_settings(SENTDM_SANDBOX_MODE=False)
-    def test_sandbox_send_endpoint_rejects_live_mode(self):
+    @patch("sentdm.permissions.SubscriptionValidationService.get_paid_active_subscription", return_value=object())
+    def test_sandbox_send_endpoint_rejects_live_mode(self, mocked_subscription):
         request = self.factory.post(
             "/api/v1/sentdm/messages/send-sandbox/",
             {"to": "+15551234567", "text": "hello"},
@@ -76,7 +78,8 @@ class SentDMSendModeGuardTests(SimpleTestCase):
         self.assertIn("sandbox", response.data)
 
     @override_settings(SENTDM_SANDBOX_MODE=True)
-    def test_live_send_endpoint_rejects_sandbox_mode(self):
+    @patch("sentdm.permissions.SubscriptionValidationService.get_paid_active_subscription", return_value=object())
+    def test_live_send_endpoint_rejects_sandbox_mode(self, mocked_subscription):
         request = self.factory.post(
             "/api/v1/sentdm/messages/send/",
             {"to": "+15551234567", "text": "hello"},
@@ -88,6 +91,24 @@ class SentDMSendModeGuardTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("sandbox", response.data)
+
+
+
+class SentDMPaidSubscriptionPermissionTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = DummyUser()
+
+    @patch("sentdm.permissions.SubscriptionValidationService.get_paid_active_subscription", return_value=None)
+    def test_sentdm_control_endpoint_requires_paid_subscription(self, mocked_subscription):
+        request = self.factory.get("/api/v1/sentdm/profiles/")
+        force_authenticate(request, user=self.user)
+
+        response = SentDMProfileListAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("paid subscription", str(response.data["detail"]))
+        mocked_subscription.assert_called_once_with(self.user)
 
 
 class SentDMWebhookSignatureTests(SimpleTestCase):

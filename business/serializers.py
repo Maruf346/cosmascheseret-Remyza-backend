@@ -11,7 +11,16 @@ from django.db import transaction
 class OrganizationSetupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ("name", "logo", "country", "business_type", "industry", "description", "website", "email", "business_hours")
+        fields = (
+            "name", "logo", "country", "business_type", "industry", "description", "website", "email", "business_hours",
+            "sentdm_legal_name", "sentdm_tax_id", "sentdm_vertical", "sentdm_authorized_rep_name",
+            "sentdm_authorized_rep_title", "sentdm_authorized_rep_email", "sentdm_authorized_rep_phone",
+            "sentdm_support_email", "sentdm_support_phone", "sentdm_privacy_policy_url", "sentdm_terms_url",
+            "sentdm_opt_in_url", "sentdm_opt_in_description", "sentdm_messaging_use_case",
+            "sentdm_sample_message_1", "sentdm_sample_message_2", "sentdm_sample_message_3",
+            "sentdm_opt_in_confirmation_message", "sentdm_opt_out_confirmation_message",
+            "sentdm_help_response_message", "sentdm_expected_monthly_volume",
+        )
     
     def validate(self, attrs):
         user = self.context["request"].user
