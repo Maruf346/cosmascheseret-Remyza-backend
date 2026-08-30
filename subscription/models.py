@@ -40,7 +40,7 @@ class UserSubscription(BaseModel):
     plan = models.ForeignKey(SubscriptionPlan, on_delete=models.PROTECT, related_name="subscriptions", blank=True, null=True)
     status = models.CharField(max_length=20, choices=SubscriptionStatus.choices, default=SubscriptionStatus.AWAITING_PAYMENT, db_index=True)
     billing_cycle = models.CharField(max_length=20, choices=BillingCycle.choices, blank=True, null=True)
-    start_date = models.DateTimeField()
+    start_date = models.DateTimeField(default=timezone.now)
     expires_at = models.DateTimeField(null=True, blank=True)
     next_billing_date = models.DateTimeField(null=True, blank=True)
     auto_renew = models.BooleanField(default=True)
@@ -68,8 +68,9 @@ class UserSubscription(BaseModel):
 
     @property
     def is_active(self):
+        if self.product_id or self.medium:
+            return self.is_subscription_active and (self.expiry_date is None or self.expiry_date > timezone.now())
         return self.status == SubscriptionStatus.ACTIVE and (self.expires_at is None or self.expires_at > timezone.now())
-
     def release_free_trial(self):
         if self.plan and self.plan.plan_type == PlanType.FREE_TRAIL:
             self.status = SubscriptionStatus.CLOSE

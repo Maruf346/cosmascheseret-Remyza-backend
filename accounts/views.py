@@ -305,7 +305,17 @@ class ClaimFreeTrailNumber(APIView):
 class CurrentUserPlanAndProgressAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def add_progress(self, title, completed):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.progress = {
+            "total_steps": 5,
+            "completed_steps": 0,
+            "percentage": 0,
+            "steps": [],
+        }
+        self.response = {}
+
+    def add_progress(self, title, completed, description=""):
         weight = int(100 / self.progress["total_steps"])
         if completed:
             self.progress["completed_steps"] += 1
@@ -314,141 +324,124 @@ class CurrentUserPlanAndProgressAPIView(APIView):
             "title": title,
             "completed": completed,
             "percentage": weight,
+            "description": description,
         })
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.progress = {
-            "total_steps": 5,
-            "completed_steps": 0,
-            "percentage": 0,
-            "steps": []
-        }
-        self.response = {}
 
     def get_active_subscription(self, user):
         return SubscriptionValidationService.get_paid_active_subscription(user)
-    
-    def process_subscription(self, subscription):
-        self.response.update({
-            "plan_type": subscription.plan_type,
-            "expires_at": subscription.expiry_date,
-            "active_subscription": UserSubscriptionSerializer(subscription).data,
-        })
+
+    def process_subscription(self, user):
+        subscription = self.get_active_subscription(user)
+        self.response["has_active_subscription"] = subscription is not None
+        self.response["plan_type"] = subscription.plan_type if subscription else None
+        self.response["expires_at"] = subscription.expiry_date if subscription else None
+        self.response["active_subscription"] = UserSubscriptionSerializer(subscription).data if subscription else None
         self.add_progress(
-            "Subscription Activated",
-            True
+            "Subscription Active",
+            subscription is not None,
+            "Paid messaging unlocks after an active Apple/Google subscription record exists.",
         )
+        return subscription
 
     def process_organization(self, user):
-        self.organization = getattr(user, "organization", None)
-        if self.organization:
-            self.response["organization"] = OrganizationSerializer(self.organization).data
-        else:
-            self.response["organization"] = None
-
+        organization = getattr(user, "organization", None)
+        self.organization = organization
+        self.response["organization"] = OrganizationSerializer(organization).data if organization else None
         self.add_progress(
-            "Organization Created",
-            self.organization is not None,
+            "Business Profile Created",
+            organization is not None,
+            "Business profile is required before Sent.dm Sender Profile setup.",
         )
-        return self.organization
+        return organization
 
-    def process_provider_account(self, user):
-        self.provider_account = getattr(user, "provider_account", None)
-        if self.provider_account:
-            self.response["provider_account"] = ProviderAccountSerializer(self.provider_account).data
-        else:
-            self.response["provider_account"] = None
-
-        self.add_progress(
-            "Provider Connected",
-            self.provider_account is not None,
-        )
-        return self.provider_account
-
-    def process_phone_numbers(self):
-        self.phone_numbers = PhoneNumber.objects.none()
-        if self.organization and self.provider_account:
-            self.phone_numbers = PhoneNumber.objects.filter(
-                organization=self.organization,
-                provider=self.provider_account,
-            ).prefetch_related("tfv_verification")
-        self.response["phone_numbers"] = [
-            {
-                "id": phone.id,
-                "phone_number": phone.phone_number,
-                "status": phone.status,
-            }
-            for phone in self.phone_numbers
-        ]
-
-        self.add_progress(
-            "Phone Number Purchased",
-            self.phone_numbers.exists(),
-        )
-        return self.phone_numbers
-
-    def process_tfv(self):
-        tfv = None
-
-        if self.phone_numbers.exists():
-            tfv = getattr(
-                self.phone_numbers.first(),
-                "tfv_verification",
-                None,
+    def process_compliance(self):
+        if not self.organization:
+            self.response["sentdm_compliance"] = None
+            self.add_progress(
+                "Compliance Details Added",
+                False,
+                "Complete the business profile before adding Sent.dm compliance details.",
             )
+            return None
 
-        if tfv:
-            self.response["tfv_verification"] = {
-                "id": tfv.id,
-                "customer_profile_sid": tfv.customer_profile_sid,
-                "status": tfv.status,
-                "is_expired": tfv.is_expired,
-                "is_released": tfv.is_released,
-            }
+        from sentdm.services import get_sentdm_compliance_readiness
 
-        else:
-            self.response["tfv_verification"] = None
-
-        # completed = bool(tfv and tfv.is_verified == "APPROVED")
-        completed = bool(tfv and tfv.is_verified == True)
-        self.add_progress(
-            "TFV Approved",
-            completed,
+        readiness = get_sentdm_compliance_readiness(self.request.user)
+        self.response["sentdm_compliance"] = readiness
+        compliance_complete = not any(
+            field != "sentdm_profile" for field in readiness.get("missing_fields", [])
         )
+        self.add_progress(
+            "Compliance Details Added",
+            compliance_complete,
+            "Legal business details, opt-in flow, sample messages, autoresponses, and policy links are required for 10DLC.",
+        )
+        return readiness
+
+    def process_sentdm_profile(self):
+        profile = None
+        if self.organization:
+            profile = getattr(self.organization, "sentdm_profile", None)
+        if not profile:
+            profile = getattr(self.request.user, "sentdm_profile", None)
+
+        self.sentdm_profile = profile
+        self.response["sentdm_profile"] = {
+            "id": profile.id,
+            "profile_id": profile.profile_id,
+            "name": profile.name,
+            "status": profile.status,
+            "phone_number": profile.phone_number,
+            "whatsapp_phone_number": profile.whatsapp_phone_number,
+            "sandbox": profile.sandbox,
+        } if profile else None
+        self.add_progress(
+            "Sent.dm Sender Profile Created",
+            profile is not None,
+            "Sender Profile is created manually during sandbox/testing and later can be triggered after paid upgrade.",
+        )
+        return profile
+
+    def process_sentdm_campaign(self):
+        campaign = None
+        if self.sentdm_profile:
+            campaign = self.sentdm_profile.campaigns.order_by("-created_at").first()
+
+        self.response["sentdm_campaign"] = {
+            "id": campaign.id,
+            "campaign_id": campaign.campaign_id,
+            "name": campaign.name,
+            "status": campaign.status,
+            "submitted_to_tcr": campaign.submitted_to_tcr,
+            "sandbox": campaign.sandbox,
+        } if campaign else None
+        self.add_progress(
+            "10DLC Campaign Submitted",
+            campaign is not None,
+            "Campaign submission uses the business compliance details and usually activates within 1-3 business days after real provider approval.",
+        )
+        return campaign
 
     def finalize_progress(self):
         self.progress["percentage"] = int(
-            self.progress["completed_steps"] * 100
-            / self.progress["total_steps"]
+            self.progress["completed_steps"] * 100 / self.progress["total_steps"]
         )
-
         self.response["progress"] = self.progress
 
     def get(self, request):
+        self.request = request
+        user = request.user
 
-        subscription = self.get_active_subscription(request.user)
-
-        if not subscription:
-            return Response(
-                {
-                    "success": False,
-                    "message": "No active subscription found.",
-                    "data": {},
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        self.process_subscription(subscription)
-        self.process_organization(request.user)
-        self.process_provider_account(request.user)
-        self.process_phone_numbers()
-        self.process_tfv()
+        self.process_subscription(user)
+        self.process_organization(user)
+        self.process_compliance()
+        self.process_sentdm_profile()
+        self.process_sentdm_campaign()
         self.finalize_progress()
 
         return Response({
             "success": True,
-            "message": "User plan and progress retrieved successfully.",
+            "message": "User plan and Sent.dm setup progress retrieved successfully.",
             "data": self.response,
         })
 

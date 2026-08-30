@@ -226,3 +226,59 @@ Validation run:
 - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
 - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate` passed.
 - Generated schema search confirmed only `/api/v1/user-subscription/` and `/api/v1/user-subscription/{id}/` remain for subscriptions; old `subscription-plans`, `purchase-verify`, and `current-plan` routes are gone.
+
+## 2026-08-30 - FIXED SUBSCRIPTION AND BUSINESS MIGRATION RUNTIME ERRORS
+
+Issue:
+
+- `GET /api/v1/user-subscription/` failed with `OperationalError: no such column: organizations.sentdm_messaging_use_case_us`.
+- Root cause: `business.0030` was already applied before `sentdm_messaging_use_case_us` was added to the model/migration file, so Django marked the migration applied but the live database did not have that late-added column.
+
+Completed:
+
+- Added corrective migration `business/migrations/0031_ensure_sentdm_messaging_use_case_us_column.py`.
+- The migration adds `organizations.sentdm_messaging_use_case_us` only when the column is missing, so existing DBs are fixed and fresh DBs safely no-op if `0030` already created the column.
+- Applied migrations locally with `.venv\Scripts\python.exe manage.py migrate`.
+- Added endpoint-level tests for the replacement `UserSubscriptionViewSet`:
+  - client users list only their own subscription records
+  - admin users list all subscription records
+  - clients can create IAP subscription payment records
+
+Validation run:
+
+- `.venv\Scripts\python.exe manage.py test subscription sentdm` passed with 20 tests.
+- `.venv\Scripts\python.exe manage.py check` passed.
+- `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
+- `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate` passed.
+- Generated schema search confirmed only `/api/v1/user-subscription/` and `/api/v1/user-subscription/{id}/` remain for the subscription API.
+
+## 2026-08-30 - SUBSCRIPTION ADMIN IAP ADD FLOW CLEANUP
+
+Completed:
+
+- Hid legacy backend-plan fields from the Django admin add/change form for `UserSubscription`.
+- Admin now shows only the Apple/Google IAP fields needed for manual testing/support: user, organization, medium, product ID, plan type, store IDs, store status, active flag, purchase/expiry dates, amount/currency, and payload.
+- Added `UserSubscriptionAdmin.save_model()` to auto-fill organization from the selected user, auto-fill purchase/start dates, mirror `expiry_date` into legacy `expires_at`, and sync legacy `status` based on `is_subscription_active`.
+- Updated `UserSubscription.start_date` to default to `timezone.now` so admin-created subscriptions no longer require hidden legacy setup fields.
+- Generated and applied `subscription/migrations/0017_alter_usersubscription_start_date.py` locally.
+
+Validation run:
+
+- `.venv\Scripts\python.exe manage.py migrate subscription` applied `0017` successfully.
+- `.venv\Scripts\python.exe manage.py test subscription sentdm` passed with 20 tests.
+- `.venv\Scripts\python.exe manage.py check` passed.
+- `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
+## 2026-08-30 - Plan Progress Endpoint Sent.dm/IAP Fix
+
+- Kept `/api/v1/me/plan-and-progress/` because the mobile app still needs one place to read subscription status plus setup progress.
+- Reworked the endpoint away from the old Twilio/TFV flow. It now reports: subscription active, business profile created, compliance details added, Sent.dm Sender Profile created, and 10DLC campaign submitted.
+- Added `business/migrations/0032_normalize_sentdm_expected_daily_volume.py` to repair malformed `sentdm_expected_daily_volume` values that were stored as text and caused `ValueError` in `OrganizationSerializer`.
+- Applied the migration locally; the bad row was normalized to integer `0`.
+- Added regression coverage for the endpoint in `accounts/tests.py`.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py migrate business`
+  - `.venv\Scripts\python.exe -m compileall -q accounts business`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts subscription sentdm`
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
