@@ -33,7 +33,6 @@ Add placeholders only. Never commit real secrets.
 SENTDM_API_BASE=https://api.sent.dm/v3
 SENTDM_API_KEY=
 SENTDM_ORGANIZATION_ID=
-SENTDM_ACCOUNT_ID=
 SENTDM_SANDBOX_MODE=True
 SENTDM_WEBHOOK_SECRET=
 ```
@@ -174,4 +173,59 @@ Phase 3: Controlled live pilot
 - What is the exact Sent.dm send-message response shape?
 - How does the production profile response expose the assigned phone number?
 - Which Sent.dm events should be subscribed for V1?
+## CURRENT IMPLEMENTATION STATUS
 
+Completed in the first Sent.dm sandbox slice:
+
+- Added dedicated `sentdm` Django app in parallel with Twilio.
+- Added Sent.dm settings and `.env.example` placeholders without committing real secrets.
+- Exposed `/api/v1/sentdm/` endpoints for account checks, profile list/create/current/complete, sandbox message send, and webhook ingestion.
+- Added Sent.dm Swagger grouping under the `Sent.dm` tag.
+- Added models for Sender Profiles, Sent.dm messages, and raw webhook events.
+- Added API client wrapper that adds `"sandbox": true` only when `SENTDM_SANDBOX_MODE=True`.
+- Added webhook signature verification helper using HMAC-SHA256 over the raw request body.
+- Added initial unit tests for sandbox payload switching, webhook signature verification, and profile status normalization.
+
+Current required env values for local sandbox work:
+
+```env
+SENTDM_API_BASE=https://api.sent.dm/v3
+SENTDM_API_KEY=
+SENTDM_ORGANIZATION_ID=
+SENTDM_SANDBOX_MODE=True
+SENTDM_WEBHOOK_SECRET=
+SENTDM_WEBHOOK_TOLERANCE_SECONDS=300
+```
+
+`SENTDM_ORGANIZATION_ID` is optional for now. It is intended only as a future safety check to confirm the API key belongs to the expected Chesera organization before live onboarding. API calls currently authenticate with `SENTDM_API_KEY`.
+
+## LIVE SEND ACTIVATION RULE
+
+The live Sent.dm send code path has been prepared but is intentionally not exposed in `sentdm/urls.py` yet.
+
+Current active route:
+
+```text
+POST /api/v1/sentdm/messages/send-sandbox/
+```
+
+Prepared but commented route:
+
+```text
+POST /api/v1/sentdm/messages/send/
+```
+
+Activation checklist before uncommenting the live route:
+
+- `SENTDM_SANDBOX_MODE=False` is set only in the production environment.
+- `SENTDM_API_KEY` is a confirmed live organization/admin API key.
+- `SENTDM_WEBHOOK_SECRET` is configured from the live Sent.dm webhook endpoint.
+- Agent Sender Profiles are approved/live, not sandbox-only simulated profiles.
+- Real lead/conversation routing is connected, including STOP/HELP handling and async webhook processing.
+- Frontend/client usage of `send-sandbox` is retired or restricted to development only.
+
+Guardrails now in code:
+
+- `send-sandbox` rejects requests when `SENTDM_SANDBOX_MODE=False`.
+- The live `send` view rejects requests when `SENTDM_SANDBOX_MODE=True`.
+- The live `send` view requires a Sent.dm Sender Profile before sending.

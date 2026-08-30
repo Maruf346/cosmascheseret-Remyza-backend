@@ -30,7 +30,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     
     # custom app-----
-    'accounts', 'ai', 'business', 'common', 'communications', 'core', 'crm', 'subscription', 'twilio_app'
+    'accounts', 'ai', 'business', 'common', 'communications', 'core', 'crm', 'subscription', 'twilio_app', 'sentdm'
 ]
 
 
@@ -97,6 +97,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Phone Numbers', 'description': 'Business phone number search, purchase, sync, and webhook setup.'},
         {'name': 'Twilio - Verification', 'description': 'Local number, TrustHub, A2P, and campaign verification workflows.'},
         {'name': 'Twilio - Webhooks', 'description': 'Twilio inbound webhook endpoints.'},
+        {'name': 'Sent.dm', 'description': 'Sent.dm sandbox, sender profile, message, and webhook endpoints.'},
         {'name': 'Toll-Free Verification', 'description': 'Toll-free verification and SMS consent endpoints.'},
         {'name': 'Trial Numbers', 'description': 'Free trial phone number inventory and management.'},
         {'name': 'Free Trial', 'description': 'Free trial subscription and number claim workflows.'},
@@ -227,3 +228,11 @@ DEFAULT_FROM_EMAIL = 'your_email@example.com'
 
 TWILIO_SMS_WEBHOOK_URL = "https://api.remyza.com/api/v1/twilio/webhook/"
 TWILIO_VOICE_WEBHOOK_URL = "https://api.remyza.com/api/v1/twilio/voice/"
+
+
+SENTDM_API_BASE = os.getenv("SENTDM_API_BASE", "https://api.sent.dm/v3")
+SENTDM_API_KEY = os.getenv("SENTDM_API_KEY", "")
+SENTDM_ORGANIZATION_ID = os.getenv("SENTDM_ORGANIZATION_ID", "")
+SENTDM_SANDBOX_MODE = os.getenv("SENTDM_SANDBOX_MODE", "True").strip().lower() in ("true", "1", "yes")
+SENTDM_WEBHOOK_SECRET = os.getenv("SENTDM_WEBHOOK_SECRET", "")
+SENTDM_WEBHOOK_TOLERANCE_SECONDS = int(os.getenv("SENTDM_WEBHOOK_TOLERANCE_SECONDS", "300"))

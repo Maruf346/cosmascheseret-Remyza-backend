@@ -30,6 +30,7 @@ class TaggedAutoSchema(AutoSchema):
         ("/api/v1/free-trail-number/create-free-trail-account/", "Trial Numbers"),
         ("/api/v1/free-trail-number/", "Trial Numbers"),
         ("/api/v1/twilio/webhook/", "Twilio - Webhooks"),
+        ("/api/v1/sentdm/", "Sent.dm"),
         ("/api/v1/subscription-plans/", "Subscription Plans"),
         ("/api/v1/user-subscription/claim-free-trail/", "Free Trial"),
         ("/api/v1/user-subscription/purchase", "Subscription Purchase"),
@@ -46,6 +47,7 @@ class TaggedAutoSchema(AutoSchema):
         "crm": "CRM",
         "ai": "AI",
         "twilio_app": "Twilio",
+        "sentdm": "Sent.dm",
     }
 
     def get_tags(self):
