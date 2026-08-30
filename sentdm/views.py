@@ -129,7 +129,7 @@ class SentDMProfileCreateAPIView(APIView):
         serializer.is_valid(raise_exception=True)
 
         try:
-            profile, response = create_profile_for_user(request.user)
+            profile, response = create_profile_for_user(request.user, serializer.validated_data)
             return Response(
                 {
                     "success": True,
@@ -183,7 +183,10 @@ class SentDMProfileCompleteAPIView(APIView):
         profile_id = serializer.validated_data.get("profile_id")
         profile = SentDMProfile.objects.filter(profile_id=profile_id).first() if profile_id else get_current_profile_or_404(request.user)
         if not profile:
-            raise NotFound("Sent.dm profile not found.")
+            raise NotFound(
+                "Sent.dm profile not found. Use the returned data.profile.profile_id "
+                "from /api/v1/sentdm/profiles/create/, not the local database id."
+            )
 
         try:
             response = complete_profile(profile, request)

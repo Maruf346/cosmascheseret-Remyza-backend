@@ -33,15 +33,16 @@ def build_short_name(value, fallback="CHESERA"):
     return fallback[:11].upper()
 
 
-def build_profile_payload(organization, user):
+def build_profile_payload(organization, user, overrides=None):
+    overrides = overrides or {}
     name = getattr(organization, "name", "") or user.full_name or user.phone_number
     email = getattr(organization, "email", "") or user.email or ""
 
     payload = {
-        "name": name,
-        "short_name": build_short_name(name, fallback=f"USR{user.id}"),
-        "description": f"Chesera messaging profile for {name}",
-        "email": email,
+        "name": overrides.get("name") or name,
+        "short_name": overrides.get("short_name") or build_short_name(name, fallback=f"USR{user.id}"),
+        "description": overrides.get("description") or f"Chesera messaging profile for {name}",
+        "email": overrides.get("email") or email,
         "inherit_contacts": False,
         "inherit_templates": False,
         "billing_model": "organization",
@@ -53,7 +54,7 @@ def build_profile_payload(organization, user):
             "contact": {
                 "name": user.full_name or name,
                 "businessName": name,
-                "email": email,
+                "email": overrides.get("email") or email,
             },
             "business": {
                 "legalName": name,
@@ -99,9 +100,9 @@ def upsert_profile_from_response(response, *, user=None, organization=None):
     return profile
 
 
-def create_profile_for_user(user):
+def create_profile_for_user(user, profile_data=None):
     organization = getattr(user, "organization", None)
-    payload = build_profile_payload(organization, user)
+    payload = build_profile_payload(organization, user, overrides=profile_data)
     client = SentDMClient()
     response = client.create_profile(payload, idempotency_key=f"chesera-profile-user-{user.id}")
     profile = upsert_profile_from_response(response, user=user, organization=organization)

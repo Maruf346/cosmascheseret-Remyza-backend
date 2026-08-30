@@ -6,7 +6,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .client import SentDMClient
-from .services import normalize_message_status, normalize_profile_status, verify_webhook_signature
+from .services import build_profile_payload, normalize_message_status, normalize_profile_status, verify_webhook_signature
 from .views import SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
@@ -31,6 +31,29 @@ class SentDMClientSandboxTests(SimpleTestCase):
         payload = client.with_sandbox({"text": "hello"})
 
         self.assertEqual(payload, {"text": "hello"})
+
+    def test_build_profile_payload_uses_request_overrides(self):
+        class User:
+            id = 7
+            full_name = ""
+            phone_number = "+15551234567"
+            email = ""
+
+        payload = build_profile_payload(
+            None,
+            User(),
+            overrides={
+                "name": "Test Sender Profile",
+                "short_name": "testSender",
+                "description": "description is here",
+                "email": "user@example.com",
+            },
+        )
+
+        self.assertEqual(payload["name"], "Test Sender Profile")
+        self.assertEqual(payload["short_name"], "testSender")
+        self.assertEqual(payload["description"], "description is here")
+        self.assertEqual(payload["email"], "user@example.com")
 
 
 class SentDMSendModeGuardTests(SimpleTestCase):

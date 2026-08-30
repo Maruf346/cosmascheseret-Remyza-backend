@@ -141,3 +141,18 @@ Current Swagger state:
 
 - Documentation now comes from view-level annotations for the active API surface.
 - `core/schema.py` remains as a fallback grouping layer for future endpoints that may not yet have explicit tags.
+
+## 2026-08-30 - SENT.DM PROFILE ID FLOW CLARIFICATION
+
+Completed:
+
+- Confirmed `/api/v1/sentdm/profiles/complete/` expects the Sent.dm `profile_id` UUID returned by `/api/v1/sentdm/profiles/create/`, not a local database row ID like `1`.
+- Updated the not-found response to explicitly tell testers to use `data.profile.profile_id` from the create response.
+- Fixed profile creation so the Swagger payload fields `name`, `short_name`, `description`, and `email` are included in the Sent.dm create-profile payload instead of being ignored.
+- Added a regression test for request payload override behavior.
+
+Validation run:
+
+- `.venv\Scripts\python.exe -m compileall -q sentdm` passed.
+- `.venv\Scripts\python.exe manage.py test sentdm` passed with 10 tests.
+- `.venv\Scripts\python.exe manage.py check` passed.
