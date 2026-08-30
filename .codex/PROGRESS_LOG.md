@@ -176,3 +176,25 @@ Validation run:
 - `.venv\Scripts\python.exe manage.py test sentdm` passed with 11 tests.
 - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
 - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate` passed; generated `tmp_schema.yml` was removed afterward.
+
+## 2026-08-30 - SENT.DM 10DLC READINESS AND CAMPAIGN LAYER
+
+Completed:
+
+- Added `sentdm_messaging_use_case_us` and corrected the volume field to `sentdm_expected_daily_volume` before the new business migration is applied.
+- Added local `SentDMCampaign` tracking model, admin registration, and migration `sentdm/migrations/0002_sentdmcampaign.py`.
+- Added Sent.dm campaign readiness service logic that reports missing compliance fields, sample-message count, selected use case, and profile availability.
+- Added Sent.dm 10DLC campaign payload builder using the documented `/v3/profiles/{profileId}/campaigns` shape.
+- Added manual API endpoints:
+  - `GET /api/v1/sentdm/compliance/readiness/`
+  - `POST /api/v1/sentdm/campaigns/create/`
+- Added `SentDMClient.update_profile()` so campaign creation can turn off inherited campaign mode before creating a dedicated per-profile campaign.
+- Kept profile/campaign creation manual for sandbox/frontend testing; no subscription-upgrade automation, OTP migration, or webhook-driven activation UI added yet.
+
+Validation run:
+
+- `.venv\Scripts\python.exe -m compileall -q business sentdm` passed.
+- `.venv\Scripts\python.exe manage.py check` passed.
+- `.venv\Scripts\python.exe manage.py test sentdm` passed with 12 tests.
+- `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` reported no changes detected.
+- `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate` passed; generated `tmp_schema.yml` was removed afterward.

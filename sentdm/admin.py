@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
+from .models import SentDMCampaign, SentDMMessage, SentDMProfile, SentDMWebhookEvent
 
 
 @admin.register(SentDMProfile)
@@ -10,6 +10,14 @@ class SentDMProfileAdmin(admin.ModelAdmin):
     search_fields = ("name", "profile_id", "phone_number", "email")
     readonly_fields = ("created_at", "updated_at", "last_synced_at")
 
+
+
+@admin.register(SentDMCampaign)
+class SentDMCampaignAdmin(admin.ModelAdmin):
+    list_display = ("name", "campaign_id", "profile", "status", "submitted_to_tcr", "sandbox", "created_at")
+    list_filter = ("status", "submitted_to_tcr", "sandbox", "campaign_type", "messaging_use_case_us")
+    search_fields = ("name", "campaign_id", "profile__profile_id", "organization__name")
+    readonly_fields = ("created_at", "updated_at", "last_synced_at")
 
 @admin.register(SentDMMessage)
 class SentDMMessageAdmin(admin.ModelAdmin):

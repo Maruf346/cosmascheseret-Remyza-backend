@@ -32,7 +32,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="organization",
-            name="sentdm_expected_monthly_volume",
+            name="sentdm_expected_daily_volume",
             field=models.PositiveIntegerField(default=0),
         ),
         migrations.AddField(
@@ -49,6 +49,10 @@ class Migration(migrations.Migration):
             model_name="organization",
             name="sentdm_messaging_use_case",
             field=models.TextField(blank=True, default=""),
+        ),        migrations.AddField(
+            model_name="organization",
+            name="sentdm_messaging_use_case_us",
+            field=models.CharField(blank=True, default="CUSTOMER_CARE", max_length=60),
         ),
         migrations.AddField(
             model_name="organization",

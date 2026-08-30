@@ -189,6 +189,73 @@ class SentDMProfileCompleteAPIView(APIView):
             return sentdm_error_response(exc)
 
 
+
+class SentDMComplianceReadinessAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
+
+    @extend_schema(
+        tags=["Sent.dm"],
+        summary="Check 10DLC compliance readiness",
+        description="Checks whether the authenticated user's business profile has the Sender Profile and compliance details required before manual Sent.dm 10DLC campaign submission.",
+        responses={200: SentDMComplianceReadinessSerializer},
+    )
+    def get(self, request):
+        readiness = get_sentdm_compliance_readiness(
+            request.user,
+            profile_id=request.query_params.get("profile_id") or None,
+        )
+        return Response({"success": True, "data": readiness}, status=status.HTTP_200_OK)
+
+
+class SentDMCampaignCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
+    serializer_class = SentDMCampaignCreateSerializer
+
+    @extend_schema(
+        tags=["Sent.dm"],
+        summary="Create 10DLC campaign",
+        description="Manually creates a Sent.dm 10DLC campaign from the current business compliance fields. Requires an active paid subscription and an existing Sender Profile. In sandbox mode Sent.dm validates the payload without real registration side effects.",
+        request=SentDMCampaignCreateSerializer,
+        responses={
+            201: SentDMCampaignSerializer,
+            400: OpenApiResponse(description="Missing compliance fields, missing Sender Profile, or Sent.dm rejected the campaign request."),
+        },
+    )
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            campaign, response, readiness = create_10dlc_campaign_for_user(
+                request.user,
+                profile_id=serializer.validated_data.get("profile_id") or None,
+                campaign_name=serializer.validated_data.get("campaign_name") or None,
+                campaign_type=serializer.validated_data.get("campaign_type") or "App",
+            )
+            if not readiness["ready"]:
+                raise ValidationError(
+                    {
+                        "detail": "Business compliance profile is not ready for Sent.dm 10DLC campaign submission.",
+                        "missing_fields": readiness["missing_fields"],
+                        "messages": readiness["messages"],
+                    }
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Sent.dm 10DLC campaign request accepted.",
+                    "sandbox": settings.SENTDM_SANDBOX_MODE,
+                    "data": {
+                        "campaign": SentDMCampaignSerializer(campaign).data,
+                        "sentdm_response": response,
+                    },
+                },
+                status=status.HTTP_201_CREATED,
+            )
+        except (ImproperlyConfigured, SentDMClientError) as exc:
+            return sentdm_error_response(exc)
+
 class SentDMSendSandboxMessageAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActivePaidSubscription]
     serializer_class = SentDMSendSandboxMessageSerializer

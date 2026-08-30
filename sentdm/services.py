@@ -7,9 +7,9 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
-from .choices import SentDMMessageDirection, SentDMMessageStatus, SentDMProfileStatus
+from .choices import SentDMCampaignStatus, SentDMMessageDirection, SentDMMessageStatus, SentDMProfileStatus
 from .client import SentDMClient
-from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
+from .models import SentDMCampaign, SentDMMessage, SentDMProfile, SentDMWebhookEvent
 
 
 OPT_OUT_KEYWORDS = {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}
@@ -112,6 +112,185 @@ def create_profile_for_user(user, profile_data=None):
     return profile, response
 
 
+
+SENTDM_10DLC_REQUIRED_FIELDS = {
+    "sentdm_legal_name": "Legal business name is required for 10DLC registration.",
+    "sentdm_support_email": "Support email is required for HELP autoresponses.",
+    "sentdm_privacy_policy_url": "Privacy Policy URL is required for 10DLC registration.",
+    "sentdm_terms_url": "Terms and Conditions URL is required for 10DLC registration.",
+    "sentdm_opt_in_description": "Opt-in/message-flow description is required for 10DLC registration.",
+    "sentdm_messaging_use_case": "Campaign description/use case is required for 10DLC registration.",
+    "sentdm_messaging_use_case_us": "US messaging use-case value is required for 10DLC registration.",
+    "sentdm_sample_message_1": "At least one realistic sample message is required for 10DLC registration.",
+    "sentdm_opt_in_confirmation_message": "Opt-in confirmation autoresponse is required for 10DLC registration.",
+    "sentdm_opt_out_confirmation_message": "Opt-out confirmation autoresponse is required for 10DLC registration.",
+    "sentdm_help_response_message": "HELP autoresponse is required for 10DLC registration.",
+}
+SENTDM_SAMPLE_FIELDS = ("sentdm_sample_message_1", "sentdm_sample_message_2", "sentdm_sample_message_3")
+SENTDM_TWO_SAMPLE_USE_CASES = {"MARKETING", "MIXED", "LOW_VOLUME"}
+
+
+def get_organization_for_user(user):
+    organization = getattr(user, "organization", None)
+    if not organization:
+        return None
+    return organization
+
+
+def get_profile_for_user(user, profile_id=None):
+    if profile_id:
+        return SentDMProfile.objects.filter(profile_id=profile_id).first()
+
+    profile = SentDMProfile.objects.filter(user=user).first()
+    if profile:
+        return profile
+
+    organization = get_organization_for_user(user)
+    if organization:
+        return SentDMProfile.objects.filter(organization=organization).first()
+    return None
+
+
+def get_sentdm_compliance_readiness(user, profile_id=None):
+    organization = get_organization_for_user(user)
+    missing_fields = []
+
+    if not organization:
+        return {
+            "ready": False,
+            "missing_fields": ["organization"],
+            "messages": {"organization": "Business profile is required before messaging activation."},
+            "profile_id": "",
+            "sample_message_count": 0,
+        }
+
+    messages = {}
+    for field, message in SENTDM_10DLC_REQUIRED_FIELDS.items():
+        if not str(getattr(organization, field, "") or "").strip():
+            missing_fields.append(field)
+            messages[field] = message
+
+    use_case = str(getattr(organization, "sentdm_messaging_use_case_us", "") or "").upper()
+    sample_messages = get_sentdm_sample_messages(organization)
+    if use_case in SENTDM_TWO_SAMPLE_USE_CASES and len(sample_messages) < 2:
+        missing_fields.append("sentdm_sample_message_2")
+        messages["sentdm_sample_message_2"] = "Marketing, mixed, and low-volume campaigns require at least two realistic sample messages."
+
+    profile = get_profile_for_user(user, profile_id=profile_id)
+    if not profile:
+        missing_fields.append("sentdm_profile")
+        messages["sentdm_profile"] = "Create a Sent.dm Sender Profile before submitting a 10DLC campaign."
+
+    return {
+        "ready": not missing_fields,
+        "missing_fields": missing_fields,
+        "messages": messages,
+        "profile_id": profile.profile_id if profile else "",
+        "sample_message_count": len(sample_messages),
+        "messaging_use_case_us": use_case,
+    }
+
+
+def get_sentdm_sample_messages(organization):
+    return [
+        str(getattr(organization, field, "") or "").strip()
+        for field in SENTDM_SAMPLE_FIELDS
+        if str(getattr(organization, field, "") or "").strip()
+    ]
+
+
+def build_10dlc_campaign_payload(organization, *, campaign_name=None, campaign_type="App"):
+    use_case = str(getattr(organization, "sentdm_messaging_use_case_us", "") or "CUSTOMER_CARE").upper()
+    volume = int(getattr(organization, "sentdm_expected_daily_volume", 0) or 0)
+
+    campaign = {
+        "name": campaign_name or f"{organization.name} Customer Messaging",
+        "description": organization.sentdm_messaging_use_case,
+        "type": campaign_type or "App",
+        "useCases": [
+            {
+                "messagingUseCaseUs": use_case,
+                "sampleMessages": get_sentdm_sample_messages(organization),
+            }
+        ],
+        "messageFlow": organization.sentdm_opt_in_description,
+        "privacyPolicyLink": organization.sentdm_privacy_policy_url,
+        "termsAndConditionsLink": organization.sentdm_terms_url,
+        "optinMessage": organization.sentdm_opt_in_confirmation_message,
+        "optoutMessage": organization.sentdm_opt_out_confirmation_message,
+        "helpMessage": organization.sentdm_help_response_message,
+        "optinKeywords": "YES, START, SUBSCRIBE",
+        "optoutKeywords": "STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT",
+        "helpKeywords": "HELP",
+    }
+    if volume > 0:
+        campaign["volume"] = str(volume)
+
+    return {"campaign": campaign}
+
+
+def normalize_campaign_status(value):
+    status_value = value or SentDMCampaignStatus.SENT_CREATED
+    if status_value in SentDMCampaignStatus.values:
+        return status_value
+    return SentDMCampaignStatus.SENT_CREATED
+
+
+def upsert_campaign_from_response(response, *, profile, payload):
+    data = response.get("data") or {}
+    campaign = payload.get("campaign") or {}
+    campaign_id = data.get("id") or ""
+
+    defaults = {
+        "profile": profile,
+        "organization": profile.organization,
+        "campaign_id": campaign_id,
+        "name": data.get("name") or campaign.get("name") or "",
+        "description": data.get("description") or campaign.get("description") or "",
+        "campaign_type": data.get("type") or campaign.get("type") or "App",
+        "messaging_use_case_us": ((campaign.get("useCases") or [{}])[0]).get("messagingUseCaseUs", "CUSTOMER_CARE"),
+        "volume": data.get("volume") or campaign.get("volume") or "",
+        "status": normalize_campaign_status(data.get("status")),
+        "submitted_to_tcr": bool(data.get("submittedToTCR", False)),
+        "tcr_campaign_id": data.get("tcrCampaignId") or "",
+        "sandbox": getattr(settings, "SENTDM_SANDBOX_MODE", True),
+        "last_synced_at": timezone.now(),
+        "raw_response": response,
+    }
+
+    if campaign_id:
+        campaign_obj, _ = SentDMCampaign.objects.update_or_create(campaign_id=campaign_id, defaults=defaults)
+    else:
+        campaign_obj = SentDMCampaign.objects.create(**defaults)
+    return campaign_obj
+
+
+def create_10dlc_campaign_for_user(user, *, profile_id=None, campaign_name=None, campaign_type="App"):
+    readiness = get_sentdm_compliance_readiness(user, profile_id=profile_id)
+    if not readiness["ready"]:
+        return None, None, readiness
+
+    profile = get_profile_for_user(user, profile_id=profile_id)
+    organization = profile.organization or get_organization_for_user(user)
+    payload = build_10dlc_campaign_payload(organization, campaign_name=campaign_name, campaign_type=campaign_type)
+    client = SentDMClient()
+
+    if profile.inherit_tcr_campaign:
+        client.update_profile(
+            profile.profile_id,
+            {"inherit_tcr_campaign": False},
+            idempotency_key=f"chesera-profile-campaign-mode-{profile.profile_id}",
+        )
+        profile.inherit_tcr_campaign = False
+        profile.save(update_fields=["inherit_tcr_campaign", "updated_at"])
+
+    response = client.create_campaign(
+        profile.profile_id,
+        payload,
+        idempotency_key=f"chesera-10dlc-campaign-{profile.profile_id}",
+    )
+    campaign = upsert_campaign_from_response(response, profile=profile, payload=payload)
+    return campaign, response, readiness
 def complete_profile(profile, request):
     webhook_url = request.build_absolute_uri(reverse("sentdm-profile-ready-webhook"))
     client = SentDMClient()

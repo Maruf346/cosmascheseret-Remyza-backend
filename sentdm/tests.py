@@ -7,7 +7,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .client import SentDMClient
-from .services import build_profile_payload, normalize_message_status, normalize_profile_status, verify_webhook_signature
+from .services import build_10dlc_campaign_payload, build_profile_payload, normalize_message_status, normalize_profile_status, verify_webhook_signature
 from .views import SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
@@ -56,6 +56,32 @@ class SentDMClientSandboxTests(SimpleTestCase):
         self.assertEqual(payload["description"], "description is here")
         self.assertEqual(payload["email"], "user@example.com")
 
+
+
+    def test_build_10dlc_campaign_payload_uses_compliance_fields(self):
+        class Organization:
+            name = "Remyza Realty"
+            sentdm_messaging_use_case = "Lead replies and appointment follow-ups for opted-in real estate leads."
+            sentdm_messaging_use_case_us = "CUSTOMER_CARE"
+            sentdm_expected_daily_volume = 250
+            sentdm_sample_message_1 = "Remyza Realty: Thanks for reaching out about the property. Reply STOP to opt out."
+            sentdm_sample_message_2 = ""
+            sentdm_sample_message_3 = ""
+            sentdm_opt_in_description = "Lead submits a website form and agrees to receive SMS replies from Remyza Realty."
+            sentdm_privacy_policy_url = "https://example.com/privacy"
+            sentdm_terms_url = "https://example.com/terms"
+            sentdm_opt_in_confirmation_message = "Remyza Realty: Thanks for opting in. Reply HELP for help or STOP to opt out. Msg and data rates may apply."
+            sentdm_opt_out_confirmation_message = "Remyza Realty: You have been unsubscribed and will not receive more messages."
+            sentdm_help_response_message = "Remyza Realty: Contact support@example.com for support. Reply STOP to opt out."
+
+        payload = build_10dlc_campaign_payload(Organization())
+        campaign = payload["campaign"]
+
+        self.assertEqual(campaign["name"], "Remyza Realty Customer Messaging")
+        self.assertEqual(campaign["volume"], "250")
+        self.assertEqual(campaign["useCases"][0]["messagingUseCaseUs"], "CUSTOMER_CARE")
+        self.assertEqual(len(campaign["useCases"][0]["sampleMessages"]), 1)
+        self.assertEqual(campaign["optoutKeywords"], "STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT")
 
 class SentDMSendModeGuardTests(SimpleTestCase):
     def setUp(self):

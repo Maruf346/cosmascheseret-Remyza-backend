@@ -34,3 +34,9 @@ class SentDMWebhookEventStatus(models.TextChoices):
     PROCESSED = "processed", "Processed"
     FAILED = "failed", "Failed"
 
+
+class SentDMCampaignStatus(models.TextChoices):
+    SENT_CREATED = "SENT_CREATED", "Sent Created"
+    ACTIVE = "ACTIVE", "Active"
+    EXPIRED = "EXPIRED", "Expired"
+    FAILED = "FAILED", "Failed"

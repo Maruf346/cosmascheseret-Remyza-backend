@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .choices import SentDMChannel
-from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
+from .models import SentDMCampaign, SentDMMessage, SentDMProfile, SentDMWebhookEvent
 
 
 class SentDMAccountCheckSerializer(serializers.Serializer):
@@ -41,6 +41,28 @@ class SentDMProfileCreateSerializer(serializers.Serializer):
 class SentDMProfileCompleteSerializer(serializers.Serializer):
     profile_id = serializers.CharField(required=False, allow_blank=True)
 
+
+
+class SentDMCampaignSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SentDMCampaign
+        fields = "__all__"
+        read_only_fields = ("id", "created_at", "updated_at")
+
+
+class SentDMComplianceReadinessSerializer(serializers.Serializer):
+    ready = serializers.BooleanField()
+    missing_fields = serializers.ListField(child=serializers.CharField())
+    messages = serializers.DictField(child=serializers.CharField())
+    profile_id = serializers.CharField(allow_blank=True)
+    sample_message_count = serializers.IntegerField()
+    messaging_use_case_us = serializers.CharField(allow_blank=True)
+
+
+class SentDMCampaignCreateSerializer(serializers.Serializer):
+    profile_id = serializers.CharField(required=False, allow_blank=True)
+    campaign_name = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    campaign_type = serializers.CharField(required=False, allow_blank=True, max_length=50, default="App")
 
 class SentDMSendSandboxMessageSerializer(serializers.Serializer):
     to = serializers.CharField(max_length=30)

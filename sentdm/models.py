@@ -109,6 +109,49 @@ class SentDMMessage(BaseModel):
         return self.sent_message_id or f"{self.direction} {self.to_number}"
 
 
+
+class SentDMCampaign(BaseModel):
+    profile = models.ForeignKey(
+        SentDMProfile,
+        on_delete=models.CASCADE,
+        related_name="campaigns",
+    )
+    organization = models.ForeignKey(
+        "business.Organization",
+        on_delete=models.CASCADE,
+        related_name="sentdm_campaigns",
+        blank=True,
+        null=True,
+    )
+    campaign_id = models.CharField(max_length=120, blank=True, default="", db_index=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    campaign_type = models.CharField(max_length=50, blank=True, default="App")
+    messaging_use_case_us = models.CharField(max_length=60, blank=True, default="CUSTOMER_CARE")
+    volume = models.CharField(max_length=20, blank=True, default="")
+    status = models.CharField(
+        max_length=30,
+        choices=SentDMCampaignStatus.choices,
+        default=SentDMCampaignStatus.SENT_CREATED,
+        db_index=True,
+    )
+    submitted_to_tcr = models.BooleanField(default=False)
+    tcr_campaign_id = models.CharField(max_length=120, blank=True, default="")
+    sandbox = models.BooleanField(default=True, db_index=True)
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    raw_response = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["profile", "status"], name="sentdm_sent_profile_2eea8d_idx"),
+            models.Index(fields=["organization", "status"], name="sentdm_sent_organiz_3f5744_idx"),
+            models.Index(fields=["campaign_id"], name="sentdm_sent_campaig_a724fe_idx"),
+        ]
+
+    def __str__(self):
+        return self.campaign_id or self.name
+
 class SentDMWebhookEvent(BaseModel):
     event_id = models.CharField(max_length=120, blank=True, default="", db_index=True)
     event_type = models.CharField(max_length=120, blank=True, default="", db_index=True)

@@ -97,6 +97,14 @@ class SentDMClient:
     def get_profile(self, profile_id):
         return self._request("GET", f"/profiles/{profile_id}")
 
+
+    def update_profile(self, profile_id, payload, *, idempotency_key=None):
+        return self._request(
+            "PATCH",
+            f"/profiles/{profile_id}",
+            json=self.with_sandbox(payload),
+            idempotency_key=idempotency_key or f"chesera-profile-update-{profile_id}",
+        )
     def complete_profile(self, profile_id, webhook_url, *, idempotency_key=None):
         return self._request(
             "POST",

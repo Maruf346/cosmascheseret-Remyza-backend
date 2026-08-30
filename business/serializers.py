@@ -17,9 +17,10 @@ class OrganizationSetupSerializer(serializers.ModelSerializer):
             "sentdm_authorized_rep_title", "sentdm_authorized_rep_email", "sentdm_authorized_rep_phone",
             "sentdm_support_email", "sentdm_support_phone", "sentdm_privacy_policy_url", "sentdm_terms_url",
             "sentdm_opt_in_url", "sentdm_opt_in_description", "sentdm_messaging_use_case",
+            "sentdm_messaging_use_case_us",
             "sentdm_sample_message_1", "sentdm_sample_message_2", "sentdm_sample_message_3",
             "sentdm_opt_in_confirmation_message", "sentdm_opt_out_confirmation_message",
-            "sentdm_help_response_message", "sentdm_expected_monthly_volume",
+            "sentdm_help_response_message", "sentdm_expected_daily_volume",
         )
     
     def validate(self, attrs):
