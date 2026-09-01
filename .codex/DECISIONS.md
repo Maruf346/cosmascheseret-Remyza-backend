@@ -76,3 +76,20 @@ Reason:
 - Prevents fake message injection.
 - Avoids provider retries and duplicate AI replies caused by slow OpenAI responses.
 
+
+## OPTIONAL PER-AGENT WHATSAPP WABA
+
+Decision:
+
+- WhatsApp is optional in V1.
+- SMS/RCS remains the default messaging path through the Sent.dm-assigned Sender Profile number.
+- Agents who already have a Meta-approved WhatsApp Business Account/WABA can connect it during Chesera onboarding.
+- Chesera stores `sentdm_whatsapp_waba_id`, `sentdm_whatsapp_phone_number_id`, and `sentdm_whatsapp_access_token` on the business profile.
+- Chesera sends `whatsapp_business_account` to Sent.dm only when all three values are present.
+- The access token is write-only in normal API serializers and must not be returned in responses.
+
+Reason:
+
+- Using the Sent.dm-provided SMS/RCS number as the WhatsApp sender would require waiting for number assignment, then Meta/WABA setup and approval, which can delay activation.
+- Keeping WhatsApp optional lets SMS/RCS activate independently.
+- Agents with an existing WhatsApp Business API setup can still use their own WhatsApp identity through Sent.dm.

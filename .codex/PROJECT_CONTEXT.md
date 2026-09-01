@@ -10,6 +10,8 @@ The approved V1 messaging direction is:
 - Sent.dm handles RCS.
 - Sent.dm handles WhatsApp.
 - Sent.dm handles dedicated messaging numbers.
+- WhatsApp is optional in V1: agents may connect their own existing Meta-approved WABA using WABA ID, phone number ID, and access token.
+- SMS/RCS activation must not be blocked by missing WhatsApp credentials.
 - Each paid agent/company gets one isolated Sent.dm Sender Profile.
 - Free users get dashboard access only, with no live messaging number.
 - Agents never touch Sent.dm directly.

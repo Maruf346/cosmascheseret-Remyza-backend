@@ -245,3 +245,85 @@ class SentDMProfileCreateGuardTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["profile_id"], "profile_existing")
         mocked_client.assert_not_called()
+    @override_settings(SENTDM_SANDBOX_MODE=False)
+    @patch("sentdm.services.SentDMClient")
+    def test_live_whatsapp_send_requires_active_whatsapp_number(self, mocked_client):
+        SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_without_whatsapp",
+            name="Profile Without WhatsApp",
+            whatsapp_phone_number="",
+        )
+        request = self.factory.post(
+            "/api/v1/sentdm/messages/send/",
+            {
+                "to": "+15551234567",
+                "text": "hello",
+                "profile_id": "profile_without_whatsapp",
+                "channel": "whatsapp",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = SentDMSendMessageAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("whatsapp", response.data)
+        mocked_client.assert_not_called()
+
+class SentDMWhatsAppPayloadTests(SimpleTestCase):
+    def test_build_profile_payload_includes_optional_whatsapp_business_account(self):
+        class User:
+            id = 9
+            full_name = "Agent Example"
+            phone_number = "+15551234567"
+            email = "agent@example.com"
+
+        class Organization:
+            name = "Example Realty"
+            email = "team@example.com"
+            website = "https://example.com"
+            country = "US"
+            sentdm_legal_name = "Example Realty LLC"
+            sentdm_support_email = "support@example.com"
+            sentdm_authorized_rep_name = "Agent Example"
+            sentdm_vertical = "REAL_ESTATE"
+            sentdm_whatsapp_waba_id = "123456789012345"
+            sentdm_whatsapp_phone_number_id = "987654321098765"
+            sentdm_whatsapp_access_token = "EAAxxxxxxxxxxxxxxx"
+
+        payload = build_profile_payload(Organization(), User())
+
+        self.assertEqual(
+            payload["whatsapp_business_account"],
+            {
+                "waba_id": "123456789012345",
+                "phone_number_id": "987654321098765",
+                "access_token": "EAAxxxxxxxxxxxxxxx",
+            },
+        )
+
+    def test_build_profile_payload_omits_whatsapp_business_account_when_not_configured(self):
+        class User:
+            id = 10
+            full_name = "Agent Example"
+            phone_number = "+15551234567"
+            email = "agent@example.com"
+
+        class Organization:
+            name = "Example Realty"
+            email = "team@example.com"
+            website = ""
+            sentdm_legal_name = "Example Realty LLC"
+            sentdm_support_email = "support@example.com"
+            sentdm_authorized_rep_name = "Agent Example"
+            sentdm_vertical = "REAL_ESTATE"
+            sentdm_whatsapp_waba_id = ""
+            sentdm_whatsapp_phone_number_id = ""
+            sentdm_whatsapp_access_token = ""
+
+        payload = build_profile_payload(Organization(), User())
+
+        self.assertNotIn("whatsapp_business_account", payload)

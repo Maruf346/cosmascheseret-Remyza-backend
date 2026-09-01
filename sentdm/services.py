@@ -33,6 +33,26 @@ def build_short_name(value, fallback="CHESERA"):
     return fallback[:11].upper()
 
 
+
+SENTDM_WHATSAPP_FIELDS = (
+    "sentdm_whatsapp_waba_id",
+    "sentdm_whatsapp_phone_number_id",
+    "sentdm_whatsapp_access_token",
+)
+
+
+def get_sentdm_whatsapp_business_account(organization):
+    values = {
+        field: str(getattr(organization, field, "") or "").strip()
+        for field in SENTDM_WHATSAPP_FIELDS
+    }
+    if not all(values.values()):
+        return None
+    return {
+        "waba_id": values["sentdm_whatsapp_waba_id"],
+        "phone_number_id": values["sentdm_whatsapp_phone_number_id"],
+        "access_token": values["sentdm_whatsapp_access_token"],
+    }
 def build_profile_payload(organization, user, overrides=None):
     overrides = overrides or {}
     name = getattr(organization, "name", "") or user.full_name or user.phone_number
@@ -51,6 +71,10 @@ def build_profile_payload(organization, user, overrides=None):
         "inherit_templates": False,
         "billing_model": "organization",
     }
+
+    whatsapp_business_account = get_sentdm_whatsapp_business_account(organization)
+    if whatsapp_business_account:
+        payload["whatsapp_business_account"] = whatsapp_business_account
 
     website = getattr(organization, "website", "")
     if website or support_email:
@@ -219,6 +243,17 @@ def get_sentdm_profile_creation_readiness(user):
     if use_case in SENTDM_TWO_SAMPLE_USE_CASES and len(sample_messages) < 2:
         missing_fields.append("sentdm_sample_message_2")
         messages["sentdm_sample_message_2"] = "Marketing, mixed, and low-volume campaigns require at least two realistic sample messages."
+
+    whatsapp_values = {
+        field: str(getattr(organization, field, "") or "").strip()
+        for field in SENTDM_WHATSAPP_FIELDS
+    }
+    provided_whatsapp_fields = [field for field, value in whatsapp_values.items() if value]
+    if 0 < len(provided_whatsapp_fields) < len(SENTDM_WHATSAPP_FIELDS):
+        for field, value in whatsapp_values.items():
+            if not value and field not in missing_fields:
+                missing_fields.append(field)
+                messages[field] = "To connect WhatsApp, waba_id, phone_number_id, and access_token are all required. Leave all three blank to skip WhatsApp."
 
     return {
         "ready": not missing_fields,

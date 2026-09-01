@@ -148,8 +148,18 @@ class SentDMProfileCreateAPIView(APIView):
                 },
                 status=status.HTTP_201_CREATED,
             )
-        except (ImproperlyConfigured, SentDMClientError) as exc:
+        except ImproperlyConfigured as exc:
             return sentdm_error_response(exc)
+        except SentDMClientError as exc:
+            response = sentdm_error_response(exc)
+            organization = get_organization_for_user(request.user)
+            if get_sentdm_whatsapp_business_account(organization):
+                response.data["hint"] = (
+                    "Sent.dm rejected the Sender Profile request. If this is related to WhatsApp, "
+                    "confirm the WABA ID, phone number ID, and access token are valid, the phone number belongs to that WABA, "
+                    "and the token has the required Meta WhatsApp permissions."
+                )
+            return response
 
 
 class SentDMCurrentProfileAPIView(APIView):
@@ -345,6 +355,12 @@ class SentDMSendMessageAPIView(APIView):
         profile = get_requested_or_current_profile(request.user, serializer.validated_data.get("profile_id"))
         if not profile:
             raise ValidationError({"profile": "A live Sent.dm Sender Profile is required before sending."})
+        if serializer.validated_data.get("channel") == "whatsapp" and not profile.whatsapp_phone_number:
+            raise ValidationError(
+                {
+                    "whatsapp": "WhatsApp is not active for this Sender Profile. Connect and verify the agent's Meta WhatsApp Business Account first, or send with auto/SMS/RCS."
+                }
+            )
 
         try:
             message, response = send_live_message(

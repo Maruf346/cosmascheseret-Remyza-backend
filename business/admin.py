@@ -39,6 +39,7 @@ class OrganizationAdmin(admin.ModelAdmin):
             "sentdm_opt_in_confirmation_message", "sentdm_opt_out_confirmation_message",
             "sentdm_help_response_message", "sentdm_expected_daily_volume",
         )}),
+        ("Sent.dm WhatsApp Optional", {"fields": ("sentdm_whatsapp_waba_id", "sentdm_whatsapp_phone_number_id", "sentdm_whatsapp_access_token")}),
         ("Onboarding", {"fields": ("is_verified", "is_demo", "is_onboarding_completed", "onboarding_step")}),
         ("System Information", {"classes": ("collapse",), "fields": ("created_at", "updated_at")}),
     )

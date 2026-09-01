@@ -295,3 +295,22 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test accounts subscription sentdm`
   - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
   - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+
+## 2026-09-01 - Optional Per-Agent WhatsApp WABA Fields
+
+- Finalized WhatsApp as an optional V1 channel for agents who already have a Meta-approved WhatsApp Business Account/WABA.
+- Added optional business onboarding fields: `sentdm_whatsapp_waba_id`, `sentdm_whatsapp_phone_number_id`, and `sentdm_whatsapp_access_token`.
+- Generated and applied `business/migrations/0033_organization_sentdm_whatsapp_access_token_and_more.py`.
+- Business serializers now require the WhatsApp fields as an all-or-none group: all blank skips WhatsApp, partial config is rejected, all three enables inclusion in the Sent.dm Sender Profile payload.
+- `sentdm_whatsapp_access_token` is write-only and removed from normal organization API responses.
+- `build_profile_payload()` now sends `whatsapp_business_account` to Sent.dm only when all three WhatsApp config values are present.
+- Profile creation errors now include a WhatsApp-specific hint when Sent.dm rejects a request that included WhatsApp credentials.
+- Live WhatsApp-only sends now require `SentDMProfile.whatsapp_phone_number`; otherwise the endpoint tells clients to connect/verify WhatsApp first or use auto/SMS/RCS.
+- Updated `.codex/PROJECT_CONTEXT.md`, `.codex/SENTDM_WORKFLOW.md`, and `.codex/DECISIONS.md` with the finalized optional WhatsApp architecture.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py migrate business`
+  - `.venv\Scripts\python.exe manage.py test accounts business subscription sentdm`
+  - `.venv\Scripts\python.exe -m compileall -q business sentdm`
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`

@@ -7,6 +7,28 @@ from twilio_app.models import (
     LocalVerification
 )
 from django.db import transaction
+SENTDM_WHATSAPP_FIELDS = (
+    "sentdm_whatsapp_waba_id",
+    "sentdm_whatsapp_phone_number_id",
+    "sentdm_whatsapp_access_token",
+)
+
+
+def validate_sentdm_whatsapp_config(attrs, instance=None):
+    values = {
+        field: str(attrs.get(field, getattr(instance, field, "")) or "").strip()
+        for field in SENTDM_WHATSAPP_FIELDS
+    }
+    provided_fields = [field for field, value in values.items() if value]
+    if 0 < len(provided_fields) < len(SENTDM_WHATSAPP_FIELDS):
+        missing_fields = [field for field, value in values.items() if not value]
+        raise serializers.ValidationError(
+            {
+                "sentdm_whatsapp": "To connect a dedicated WhatsApp Business Account, waba_id, phone_number_id, and access_token are all required. Leave all three blank to skip WhatsApp.",
+                "missing_fields": missing_fields,
+            }
+        )
+    return attrs
 
 class OrganizationSetupSerializer(serializers.ModelSerializer):
     class Meta:
@@ -21,9 +43,12 @@ class OrganizationSetupSerializer(serializers.ModelSerializer):
             "sentdm_sample_message_1", "sentdm_sample_message_2", "sentdm_sample_message_3",
             "sentdm_opt_in_confirmation_message", "sentdm_opt_out_confirmation_message",
             "sentdm_help_response_message", "sentdm_expected_daily_volume",
+            "sentdm_whatsapp_waba_id", "sentdm_whatsapp_phone_number_id", "sentdm_whatsapp_access_token",
         )
+        extra_kwargs = {"sentdm_whatsapp_access_token": {"write_only": True, "required": False}}
     
     def validate(self, attrs):
+        attrs = validate_sentdm_whatsapp_config(attrs)
         user = self.context["request"].user
         if hasattr(user, "organization"):
             raise serializers.ValidationError("Business profile already exists.")
@@ -63,9 +88,18 @@ class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
         fields = "__all__"
+        extra_kwargs = {"sentdm_whatsapp_access_token": {"write_only": True, "required": False}}
     
+    def validate(self, attrs):
+        return validate_sentdm_whatsapp_config(attrs, instance=self.instance)
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        data.pop("sentdm_whatsapp_access_token", None)
+        data["has_sentdm_whatsapp_config"] = all(
+            str(getattr(instance, field, "") or "").strip()
+            for field in SENTDM_WHATSAPP_FIELDS
+        )
         data["business_type"] = (instance.business_type.name if instance.business_type else None)
         data["industry"] = (instance.industry.name if instance.industry else None)
         return data

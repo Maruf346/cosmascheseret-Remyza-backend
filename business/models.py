@@ -51,6 +51,9 @@ class Organization(BaseModel):
     sentdm_opt_out_confirmation_message = models.TextField(blank=True, default="")
     sentdm_help_response_message = models.TextField(blank=True, default="")
     sentdm_expected_daily_volume = models.PositiveIntegerField(default=0)
+    sentdm_whatsapp_waba_id = models.CharField(max_length=100, blank=True, default="")
+    sentdm_whatsapp_phone_number_id = models.CharField(max_length=100, blank=True, default="")
+    sentdm_whatsapp_access_token = models.TextField(blank=True, default="")
     
     is_verified = models.BooleanField(default=False, help_text="Organization verification status.")
     is_demo = models.BooleanField(default=False, help_text="Used for demo/testing organizations.")

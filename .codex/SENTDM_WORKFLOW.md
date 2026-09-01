@@ -90,7 +90,36 @@ Hi [Name], this is the assistant for [Agent Business]. Thanks for reaching out a
 
 ## WHATSAPP FLOW
 
-WhatsApp is handled through Sent.dm and Chesera.
+WhatsApp is optional for V1.
+
+Default messaging remains SMS/RCS through the Sent.dm-assigned Sender Profile number. Agents who do not have or do not want WhatsApp can still use Chesera through SMS/RCS.
+
+For agents who already have a Meta-approved WhatsApp Business Account/WABA, Chesera can connect that WhatsApp identity to the agent's Sent.dm Sender Profile during onboarding.
+
+Optional WhatsApp fields stored on the business profile:
+
+- `sentdm_whatsapp_waba_id`
+- `sentdm_whatsapp_phone_number_id`
+- `sentdm_whatsapp_access_token`
+
+Rules:
+
+- All three fields are optional.
+- If none are provided, Chesera skips WhatsApp and still allows SMS/RCS setup.
+- If any one of the three is provided, all three are required.
+- The access token must not be returned in normal API responses.
+- During Sender Profile creation, Chesera sends `whatsapp_business_account` to Sent.dm only when all three fields are present.
+- If Sent.dm rejects the WhatsApp config, Chesera should show a clear error telling the agent/admin to verify the WABA ID, phone number ID, access token, phone-number ownership, and Meta permissions.
+
+Important architecture decision:
+
+- SMS sender number = Sent.dm-assigned/provisioned Sender Profile number.
+- WhatsApp sender number = the Meta/WABA phone number represented by the agent's `phone_number_id`.
+- These can be different numbers in V1.
+
+Reason:
+
+Using the Sent.dm-provided SMS/RCS number as the main WhatsApp number would require waiting for Sent.dm number assignment first, then connecting that number through Meta Business/WABA setup and waiting for Meta approval. That creates an extra dependency and can delay activation. Using an already-prepared WhatsApp Business number keeps SMS/RCS activation independent from Meta/WhatsApp setup.
 
 Important rule:
 
@@ -104,7 +133,6 @@ This means:
 - Outside the window, WhatsApp may require approved template messages.
 
 For V1, scheduled follow-ups outside the 24-hour WhatsApp window should route to SMS instead of using WhatsApp templates.
-
 ## FOLLOW-UP SEQUENCES
 
 Chesera's planned follow-up sequence:
