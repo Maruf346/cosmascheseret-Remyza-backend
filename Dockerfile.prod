@@ -30,6 +30,10 @@ COPY . .
 # Static files are collected at runtime via entrypoint.sh
 # (SECRET_KEY and other env vars are not available at build time)
 
+# Entrypoint (must be done as root before switching user)
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Create non-root user for security
 RUN addgroup --system appgroup && adduser --system --group appgroup
 RUN chown -R appgroup:appgroup /app
@@ -37,9 +41,5 @@ USER appgroup
 
 # Expose gunicorn port
 EXPOSE 8005
-
-# Entrypoint
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
