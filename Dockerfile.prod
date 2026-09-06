@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # Production Dockerfile - Remyza / Chesara Backend
 # ============================================================
 FROM python:3.12-slim
@@ -27,8 +27,8 @@ RUN pip install --no-cache-dir gunicorn psycopg2-binary boto3 django-storages
 # Copy project
 COPY . .
 
-# Collect static files at build time
-RUN python manage.py collectstatic --noinput
+# Static files are collected at runtime via entrypoint.sh
+# (SECRET_KEY and other env vars are not available at build time)
 
 # Create non-root user for security
 RUN addgroup --system appgroup && adduser --system --group appgroup
