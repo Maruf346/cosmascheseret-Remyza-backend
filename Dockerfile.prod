@@ -1,5 +1,5 @@
 # ============================================================
-# Production Dockerfile - Remyza / Chesara Backend
+# Production Dockerfile - Remyza / Chesera Backend
 # ============================================================
 FROM python:3.12-slim
 

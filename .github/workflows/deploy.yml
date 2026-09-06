@@ -1,5 +1,5 @@
 ﻿# ============================================================
-# CI/CD Pipeline - Remyza / Chesara Backend
+# CI/CD Pipeline - Remyza / Chesera Backend
 # Triggers on push to main branch
 # Builds Docker image -> pushes to ECR -> deploys to EC2
 # ============================================================

@@ -1,5 +1,5 @@
 ﻿# ============================================================
-# Production Docker Compose - Remyza / Chesara Backend
+# Production Docker Compose - Remyza / Chesera Backend
 # Used on EC2. PostgreSQL and S3 are AWS-managed (not here).
 # ============================================================
 version: "3.9"

@@ -82,8 +82,8 @@ SIMPLE_JWT = {
 CORS_ORIGIN_ALLOW_ALL = True
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Chesara API',
-    'DESCRIPTION': 'API documentation for Chesara project',
+    'TITLE': 'Chesera API',
+    'DESCRIPTION': 'API documentation for Chesera project',
     'VERSION': '1.0.0',
     'TAGS': [
         {'name': 'Auth - Admin', 'description': 'Admin authentication endpoints.'},
