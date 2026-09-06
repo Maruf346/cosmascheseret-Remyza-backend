@@ -326,3 +326,18 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py check`
   - `.venv\Scripts\python.exe manage.py test business sentdm`
 - Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM drift: `crm/migrations/0004_alter_followupreminder_id.py`.
+
+## 2026-09-06 - Deployment Guide HTTP-Only Nginx Update
+
+- Added root `deployment.md` because no deployment markdown guide existed in the repo.
+- Documented current deployment domain as `api.trychesera.com` instead of the earlier `api.remyza.com` placeholder.
+- Documented HTTP-only Nginx setup for the current phase before DNS/SSL is finalized.
+- Added PuTTY/nano instructions so the Nginx config can be pasted directly on EC2 without using `scp`.
+- Added later Certbot/SSL section and noted that HTTPS config should not be enabled before certificate files exist.
+- Added Sent.dm webhook readiness note: real webhook testing should happen after HTTPS is active.
+
+## 2026-09-06 - Deployment Guide Location Correction
+
+- Merged the temporary root `deployment.md` instructions into the existing `.codex/DEPLOYMENT.md` guide.
+- Removed the duplicate root `deployment.md` file to avoid two competing deployment guides.
+- Updated `.codex/DEPLOYMENT.md` to use `api.trychesera.com`, HTTP-only Nginx for the current phase, PuTTY/nano instructions instead of `scp`, and later Certbot SSL instructions.
