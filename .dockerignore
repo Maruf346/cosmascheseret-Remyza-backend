@@ -1,0 +1,49 @@
+﻿# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+.Python
+*.egg-info/
+.eggs/
+
+# Environments
+.env
+.env.*
+!.env.example
+!.env.production.example
+.venv
+venv/
+env/
+
+# Local dev
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Docker
+Dockerfile
+Dockerfile.prod
+docker-compose.yml
+docker-compose.prod.yml
+
+# CI/CD
+.github/
+
+# IDE
+.vscode/
+.idea/
+*.code-snippets
+
+# Docs / Scratch
+docs/
+.codex/
+*.md
+structure.json
+example.py
+example.json

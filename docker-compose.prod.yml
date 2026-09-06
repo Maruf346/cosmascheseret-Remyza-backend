@@ -1,0 +1,26 @@
+﻿# ============================================================
+# Production Docker Compose - Remyza / Chesara Backend
+# Used on EC2. PostgreSQL and S3 are AWS-managed (not here).
+# ============================================================
+version: "3.9"
+
+services:
+  backend:
+    image: ${DOCKER_IMAGE:-remyza-backend}:${IMAGE_TAG:-latest}
+    container_name: cheshara_backend
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8005:8005"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
