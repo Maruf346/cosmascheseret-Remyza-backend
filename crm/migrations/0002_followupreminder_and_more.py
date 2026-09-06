@@ -49,26 +49,7 @@ class Migration(migrations.Migration):
             model_name='leadactivity',
             name='is_deleted',
         ),
-        migrations.AlterField(
-            model_name='lead',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
-        migrations.AlterField(
-            model_name='leadactivity',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
-        migrations.AlterField(
-            model_name='leadtag',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
-        migrations.AlterField(
-            model_name='leadtagassignment',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
+
         migrations.AddConstraint(
             model_name='lead',
             constraint=models.UniqueConstraint(fields=('organization', 'contact_number'), name='unique_lead_per_organization'),

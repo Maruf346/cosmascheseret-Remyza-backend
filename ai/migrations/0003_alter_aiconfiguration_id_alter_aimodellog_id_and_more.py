@@ -9,25 +9,4 @@ class Migration(migrations.Migration):
         ('ai', '0002_remove_prompttemplate_unique_prompt_version_and_more'),
     ]
 
-    operations = [
-        migrations.AlterField(
-            model_name='aiconfiguration',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-        migrations.AlterField(
-            model_name='aimodellog',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-        migrations.AlterField(
-            model_name='aiusagelog',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-        migrations.AlterField(
-            model_name='prompttemplate',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-    ]
+    operations = []

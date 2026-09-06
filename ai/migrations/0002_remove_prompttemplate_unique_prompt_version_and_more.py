@@ -48,26 +48,7 @@ class Migration(migrations.Migration):
             model_name='aiusagelog',
             name='is_deleted',
         ),
-        migrations.AlterField(
-            model_name='aiconfiguration',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
-        migrations.AlterField(
-            model_name='aimodellog',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
-        migrations.AlterField(
-            model_name='aiusagelog',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
-        migrations.AlterField(
-            model_name='prompttemplate',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
-        ),
+
         migrations.AddConstraint(
             model_name='prompttemplate',
             constraint=models.UniqueConstraint(fields=('organization', 'name'), name='unique_prompt_version'),

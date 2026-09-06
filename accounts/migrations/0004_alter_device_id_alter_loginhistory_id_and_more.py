@@ -9,25 +9,4 @@ class Migration(migrations.Migration):
         ('accounts', '0003_remove_device_deleted_at_remove_device_is_deleted_and_more'),
     ]
 
-    operations = [
-        migrations.AlterField(
-            model_name='device',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-        migrations.AlterField(
-            model_name='loginhistory',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-        migrations.AlterField(
-            model_name='otpverification',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-        migrations.AlterField(
-            model_name='user',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
-    ]
+    operations = []
