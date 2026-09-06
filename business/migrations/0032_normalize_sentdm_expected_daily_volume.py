@@ -15,14 +15,23 @@ def normalize_sentdm_expected_daily_volume(apps, schema_editor):
         if column_name not in columns:
             return
 
-        cursor.execute(
-            """
-            UPDATE organizations
-            SET sentdm_expected_daily_volume = 0
-            WHERE sentdm_expected_daily_volume IS NULL
-               OR typeof(sentdm_expected_daily_volume) != 'integer'
-            """
-        )
+        if schema_editor.connection.vendor == "sqlite":
+            cursor.execute(
+                """
+                UPDATE organizations
+                SET sentdm_expected_daily_volume = 0
+                WHERE sentdm_expected_daily_volume IS NULL
+                   OR typeof(sentdm_expected_daily_volume) != 'integer'
+                """
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE organizations
+                SET sentdm_expected_daily_volume = 0
+                WHERE sentdm_expected_daily_volume IS NULL
+                """
+            )
 
 
 class Migration(migrations.Migration):

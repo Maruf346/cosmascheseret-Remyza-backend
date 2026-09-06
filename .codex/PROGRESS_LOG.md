@@ -314,3 +314,15 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
   - `.venv\Scripts\python.exe manage.py check`
   - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+
+## 2026-09-06 - PostgreSQL Deployment Migration Fix
+
+- Deployment failed while applying `business.0032_normalize_sentdm_expected_daily_volume` because the migration used SQLite-only `typeof(...)` SQL.
+- Patched `business/migrations/0032_normalize_sentdm_expected_daily_volume.py` to branch by database vendor:
+  - SQLite keeps the `typeof(...)` cleanup for malformed local text values.
+  - PostgreSQL and other databases only normalize `NULL` values because integer columns cannot contain SQLite-style text values.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py migrate business`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test business sentdm`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM drift: `crm/migrations/0004_alter_followupreminder_id.py`.
