@@ -15,7 +15,7 @@ import os
 
 from twilio_app.models import MessagingService, A2PProfile, A2PBrand, A2PCampaign, CustomerProfile, BusinessEndUser, BusinessAddress, TrustHubEvaluation
 from twilio_app.choices import MessagingServiceStatus, LocalVerificationStatus
-from example import sub_account_create_response, toll_free_number_purchase_response, twilio_messaging_service_response, brand_registration, business_end_user, twilio_address, a2p_profile
+# NOTE: example.py removed — Twilio A2P is deprecated, migrating to SendDM
 from twilio_app.helper import purchase_to_dict, MessageService_to_Dict, TrustHubPolicy_to_Dict, CustomerProfile_to_Dict, BrandSerializer, EndUserSerializer, TwilioAddressSerializer, A2PProfileSerializer, A2PEvaluationSerializer
 
 class TwilioService:
@@ -783,8 +783,8 @@ class TwilioLocalVerificationService:
             # profile = client.trusthub.v1.customer_profiles.create(
             #     friendly_name=self.organization.name, email=self.organization.email, policy_sid=policy_sid,
             # )
-            customer_profile_bundle_sid = brand_registration["customer_profile_bundle_sid"]
-            profile = client.trusthub.v1.customer_profiles(sid=customer_profile_bundle_sid).fetch()
+            # Twilio A2P deprecated — migrating to SendDM
+            raise NotImplementedError("Twilio A2P Customer Profile creation is no longer supported. Use SendDM instead.")
             data = CustomerProfile_to_Dict(profile)
 
             customer_profile = self.save_customer_profile(data)
@@ -834,7 +834,8 @@ class TwilioLocalVerificationService:
         #     type="customer_profile_business_end_user",
         #     attributes=attributes,
         # )
-        end_user = client.trusthub.v1.end_users(sid=business_end_user["sid"]).fetch()
+        # Twilio A2P deprecated — migrating to SendDM
+        raise NotImplementedError("Twilio A2P Business End User creation is no longer supported. Use SendDM instead.")
 
         end_user_serializer = EndUserSerializer(end_user)
         return self.save_end_user(end_user_serializer)
@@ -878,7 +879,8 @@ class TwilioLocalVerificationService:
         #     postal_code=payload["postal_code"],
         #     iso_country=payload["country"],
         # )
-        address = self.subaccount_client().addresses(sid=twilio_address["sid"]).fetch()
+        # Twilio A2P deprecated — migrating to SendDM
+        raise NotImplementedError("Twilio A2P Business Address creation is no longer supported. Use SendDM instead.")
 
         address_serializer = TwilioAddressSerializer(address)
         return self.save_business_address(address_serializer)

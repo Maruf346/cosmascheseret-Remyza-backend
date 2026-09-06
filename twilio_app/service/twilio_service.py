@@ -15,7 +15,7 @@ from core.models import FreeTrailPhoneNumber
 from twilio_app.choices import VerificationStatus
 
 
-from example import toll_free_number_purchase_response
+# NOTE: example.py import removed — Twilio module deprecated, migrating to SendDM
 from twilio_app.helper import purchase_to_dict, TFV_to_dict
 from business.choices import PhoneNumberStatus
 from core.models import TollFreeVerification
