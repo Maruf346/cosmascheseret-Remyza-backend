@@ -48,7 +48,7 @@ https://api.trychesera.com/api/v1/sentdm/webhooks/inbound/
 verify signature -> store event -> enqueue processing -> return 200 immediately
 ```
 
-- [ ] Add idempotency/deduplication by Sent.dm event ID.
+- [ ] Add idempotency/deduplication using a payload-derived key, not `X-Webhook-ID` because Sent documents that header as the webhook configuration ID.
 - [ ] Add retry-safe processing status on webhook events.
 - [ ] Add error logging for failed background processing.
 - [ ] Add tests for duplicate webhook events.
@@ -172,6 +172,7 @@ access_token
 - [ ] Confirm `ALLOWED_HOSTS` includes `api.trychesera.com`.
 - [ ] Confirm `CSRF_TRUSTED_ORIGINS` includes `https://api.trychesera.com`.
 - [ ] Confirm `SECURE_PROXY_SSL_HEADER` is set correctly behind Nginx.
+- [x] Fix Django admin CSS/static routing by removing the Nginx host alias and serving static files through WhiteNoise in the backend container.
 - [ ] Confirm SSL renewal works:
 
 ```bash

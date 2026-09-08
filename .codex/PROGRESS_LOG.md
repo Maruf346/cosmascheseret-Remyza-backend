@@ -347,3 +347,11 @@ Validation run:
 - Added `.codex/REMAINING_WORK.md` as the live TODO checklist for finishing Chesera's Sent.dm migration and production rollout.
 - Organized remaining work into production Sent.dm validation, webhook setup, async processing, inbound routing, CRM/conversation mapping, STOP/HELP compliance, AI replies, outbound send rules, activation status sync, frontend/mobile integration, deployment hardening, and final handoff cleanup.
 - Updated `.codex/PROJECT_CONTEXT.md` to point future work toward `.codex/REMAINING_WORK.md` as the source of truth for unfinished implementation items.
+
+## 2026-09-08 - Sent.dm Webhook Secret Format and Admin Static Fix
+
+- Updated Sent.dm webhook signature verification to match Sent's documented production format: `whsec_` signing secret, `x-webhook-signature` value formatted as `v1,{base64_signature}`, signed over `{webhook_id}.{timestamp}.{raw_body}`, and 5-minute timestamp tolerance.
+- Updated webhook signature tests to generate the Sent-style base64 HMAC signature.
+- Updated `nginx/nginx.conf` for the final `api.trychesera.com` HTTPS config and removed the `/static/` alias that pointed Nginx at container-only `/app/staticfiles`.
+- Kept Django admin/static serving through WhiteNoise inside the backend container; this fixes the production admin CSS issue when static files are not host-mounted.
+- Updated `.codex/DEPLOYMENT.md` and `.codex/REMAINING_WORK.md` with the current static-file deployment guidance and the future payload-derived webhook idempotency note.

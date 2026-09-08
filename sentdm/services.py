@@ -1,3 +1,5 @@
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -453,8 +455,15 @@ def verify_webhook_signature(request):
     if age > getattr(settings, "SENTDM_WEBHOOK_TOLERANCE_SECONDS", 300):
         return False
 
+    secret_value = secret.removeprefix("whsec_")
+    try:
+        secret_key = base64.b64decode(secret_value, validate=True)
+    except (binascii.Error, ValueError):
+        secret_key = secret.encode()
+
     signed_content = webhook_id.encode() + b"." + timestamp.encode() + b"." + request.body
-    expected = hmac.new(secret.encode(), signed_content, hashlib.sha256).hexdigest()
+    digest = hmac.new(secret_key, signed_content, hashlib.sha256).digest()
+    expected = f"v1,{base64.b64encode(digest).decode()}"
     return hmac.compare_digest(signature, expected)
 
 

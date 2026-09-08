@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import time
@@ -149,16 +150,17 @@ class SentDMWebhookSignatureTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
-    @override_settings(SENTDM_WEBHOOK_SECRET="secret", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
+    @override_settings(SENTDM_WEBHOOK_SECRET="whsec_c2VjcmV0", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
     def test_verify_webhook_signature_accepts_valid_signature(self):
         body = b'{"type":"message.received"}'
         timestamp = str(int(time.time()))
         webhook_id = "evt_123"
-        signature = hmac.new(
+        digest = hmac.new(
             b"secret",
             webhook_id.encode() + b"." + timestamp.encode() + b"." + body,
             hashlib.sha256,
-        ).hexdigest()
+        ).digest()
+        signature = f"v1,{base64.b64encode(digest).decode()}"
         request = self.factory.post(
             "/api/v1/sentdm/webhooks/inbound/",
             body,
@@ -170,7 +172,7 @@ class SentDMWebhookSignatureTests(SimpleTestCase):
 
         self.assertTrue(verify_webhook_signature(request))
 
-    @override_settings(SENTDM_WEBHOOK_SECRET="secret", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
+    @override_settings(SENTDM_WEBHOOK_SECRET="whsec_c2VjcmV0", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
     def test_verify_webhook_signature_rejects_invalid_signature(self):
         request = self.factory.post(
             "/api/v1/sentdm/webhooks/inbound/",
