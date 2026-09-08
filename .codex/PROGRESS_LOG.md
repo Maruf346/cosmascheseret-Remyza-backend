@@ -341,3 +341,9 @@ Validation run:
 - Merged the temporary root `deployment.md` instructions into the existing `.codex/DEPLOYMENT.md` guide.
 - Removed the duplicate root `deployment.md` file to avoid two competing deployment guides.
 - Updated `.codex/DEPLOYMENT.md` to use `api.trychesera.com`, HTTP-only Nginx for the current phase, PuTTY/nano instructions instead of `scp`, and later Certbot SSL instructions.
+
+## 2026-09-08 - Remaining Work Tracker Added
+
+- Added `.codex/REMAINING_WORK.md` as the live TODO checklist for finishing Chesera's Sent.dm migration and production rollout.
+- Organized remaining work into production Sent.dm validation, webhook setup, async processing, inbound routing, CRM/conversation mapping, STOP/HELP compliance, AI replies, outbound send rules, activation status sync, frontend/mobile integration, deployment hardening, and final handoff cleanup.
+- Updated `.codex/PROJECT_CONTEXT.md` to point future work toward `.codex/REMAINING_WORK.md` as the source of truth for unfinished implementation items.

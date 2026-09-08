@@ -42,6 +42,7 @@ Important existing apps:
 - Store real provider credentials only in `.env`.
 - Keep `.codex` files free of secrets.
 - Every meaningful code change should also update the relevant `.codex` context/progress file.
+- Track unfinished implementation work in `.codex/REMAINING_WORK.md`; update checklist statuses whenever work starts, completes, is blocked, or changes scope.
 
 ## CURRENT SENT.DM TEST STATUS
 
