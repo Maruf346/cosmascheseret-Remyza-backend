@@ -57,42 +57,42 @@ verify signature -> store event -> enqueue processing -> return 200 immediately
 ## 4. INBOUND MESSAGE ROUTING
 
 - [ ] Parse real Sent.dm inbound message payload shape from production/sandbox webhook examples.
-- [ ] Extract Sender Profile ID from webhook payload.
-- [ ] Match Sender Profile ID to `SentDMProfile`.
-- [ ] Match `SentDMProfile` to organization and agent/user.
-- [ ] Store inbound message in `SentDMMessage`.
-- [ ] Store channel: `sms`, `rcs`, or `whatsapp`.
-- [ ] Store sender/recipient numbers or contact identifiers.
-- [ ] Handle payloads where profile/contact/conversation identifiers are missing or differently named.
-- [ ] Add tests using real captured webhook payload examples.
+- [x] Extract Sender Profile ID from webhook payload.
+- [x] Match Sender Profile ID to `SentDMProfile`.
+- [x] Match `SentDMProfile` to organization and agent/user.
+- [x] Store inbound message in `SentDMMessage`.
+- [x] Store channel: `sms`, `rcs`, or `whatsapp`.
+- [x] Store sender/recipient numbers or contact identifiers.
+- [~] Handle payloads where profile/contact/conversation identifiers are missing or differently named. Flexible parser added; still needs real captured payload validation.
+- [~] Add tests using real captured webhook payload examples. Tests added with Sent-style sample payload; replace/extend with captured production payloads later.
 
 ## 5. CRM LEAD AND CONVERSATION MAPPING
 
-- [ ] Decide source of truth for matching inbound contact to lead: phone number, Sent.dm contact ID, conversation ID, or combined lookup.
-- [ ] Create or update `crm.Lead` from inbound message when needed.
-- [ ] Link inbound `SentDMMessage` to lead.
-- [ ] Create or update `communications.Conversation`.
-- [ ] Link message history to the conversation.
-- [ ] Preserve channel history per conversation.
-- [ ] Add tests for new lead creation from inbound messages.
-- [ ] Add tests for existing lead/conversation continuation.
+- [x] Decide source of truth for matching inbound contact to lead: Sender Profile + inbound phone number for now; Sent.dm contact/conversation IDs can be added after real payload capture.
+- [x] Create or update `crm.Lead` from inbound message when needed.
+- [x] Link inbound `SentDMMessage` to lead.
+- [x] Create or update `communications.Conversation`.
+- [x] Link message history to the conversation.
+- [x] Preserve channel history per conversation.
+- [x] Add tests for new lead creation from inbound messages.
+- [x] Add tests for existing lead/conversation continuation.
 
 ## 6. STOP, HELP, AND CONSENT HANDLING
 
-- [ ] Add persistent lead opt-out field or confirm existing model field can be reused.
-- [ ] Detect opt-out keywords before AI processing:
+- [x] Add persistent lead opt-out field or confirm existing model field can be reused.
+- [x] Detect opt-out keywords before AI processing:
 
 ```text
 STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT
 ```
 
-- [ ] Mark lead permanently opted out.
-- [ ] Close/stop active conversations for opted-out lead.
-- [ ] Prevent future AI replies to opted-out lead.
-- [ ] Prevent follow-up sequences/reminders to opted-out lead.
-- [ ] Reply to `HELP` with agent support email/help response.
-- [ ] Add tests for STOP/HELP before AI generation.
-- [ ] Add tests that follow-ups cannot send after opt-out.
+- [x] Mark lead permanently opted out.
+- [x] Close/stop active conversations for opted-out lead.
+- [x] Prevent future AI replies to opted-out lead.
+- [x] Prevent follow-up sequences/reminders to opted-out lead.
+- [x] Reply to `HELP` with agent support email/help response.
+- [x] Add tests for STOP/HELP before AI generation.
+- [x] Add tests that follow-ups cannot send after opt-out.
 
 ## 7. AI REPLY INTEGRATION
 
@@ -183,7 +183,7 @@ sudo certbot renew --dry-run
 - [ ] Confirm RDS backups/snapshots are enabled.
 - [ ] Confirm server logs are accessible.
 - [ ] Confirm error monitoring/log retention plan.
-- [ ] Fix unrelated CRM migration drift:
+- [x] Fix unrelated CRM migration drift:
 
 ```text
 crm/migrations/0004_alter_followupreminder_id.py

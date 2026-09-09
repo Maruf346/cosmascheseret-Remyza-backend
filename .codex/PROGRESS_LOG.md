@@ -355,3 +355,23 @@ Validation run:
 - Updated `nginx/nginx.conf` for the final `api.trychesera.com` HTTPS config and removed the `/static/` alias that pointed Nginx at container-only `/app/staticfiles`.
 - Kept Django admin/static serving through WhiteNoise inside the backend container; this fixes the production admin CSS issue when static files are not host-mounted.
 - Updated `.codex/DEPLOYMENT.md` and `.codex/REMAINING_WORK.md` with the current static-file deployment guidance and the future payload-derived webhook idempotency note.
+
+## 2026-09-09 - Sent.dm Inbound STOP/HELP Processing
+
+- Added permanent lead opt-out fields: `is_opted_out`, `opted_out_at`, `opt_out_keyword`, and `opt_out_source`.
+- Added CRM admin visibility for opt-out status and opt-out timestamp.
+- Added `process_sentdm_webhook_event(event)` as the first webhook processing service boundary.
+- Sent.dm inbound webhooks now parse Sender Profile ID, message ID, channel, sender/recipient numbers, and text from flexible Sent-style payload shapes.
+- Inbound webhooks now match the Sender Profile to the organization/agent, create/update leads and active conversations, store `SentDMMessage`, and mirror messages into `communications.Message`.
+- STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT are handled before any future AI processing: the lead is permanently opted out, AI is disabled, active conversations are closed, and pending follow-up reminders are marked sent so they do not fire.
+- HELP now sends the organization's configured Sent.dm help response through the same Sender Profile.
+- Follow-up reminder task now excludes opted-out leads.
+- Added regression tests for STOP opt-out, conversation closure, reminder suppression, inbound message storage, HELP autoresponse, and preserving opt-out state if the Sent.dm confirmation send fails.
+- Generated and applied `crm/migrations/0004_lead_is_opted_out_lead_opt_out_keyword_and_more.py`; this also resolves the previous CRM migration drift around `FollowUpReminder.id`.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q crm sentdm core`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test sentdm`
+  - `.venv\Scripts\python.exe manage.py migrate crm`
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm`

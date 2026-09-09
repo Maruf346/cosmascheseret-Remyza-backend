@@ -65,5 +65,19 @@ Last known local checks:
 
 - `python manage.py check` passed.
 - Full Python compile passed after the local verification comma fix.
-- Existing Django tests contain no real coverage and `manage.py test` reports 0 tests.
+- Focused backend tests now cover subscription, Sent.dm profile/campaign helpers, optional WhatsApp payloads, webhook signature verification, and STOP/HELP webhook processing.
 
+
+## CURRENT SENT.DM WEBHOOK PROCESSING STATE
+
+As of 2026-09-09, the deployed HTTPS webhook URL receives Sent.dm events:
+
+```text
+https://api.trychesera.com/api/v1/sentdm/webhooks/inbound/
+```
+
+The backend now verifies Sent.dm webhook signatures, stores raw webhook events, parses inbound message payloads, maps them to Sender Profile, organization, lead, and conversation when possible, and stores inbound messages in both `SentDMMessage` and `communications.Message`.
+
+STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT are handled before any future AI processing. The matched lead is permanently opted out, AI is disabled, active conversations are closed, and pending follow-up reminders are suppressed. HELP sends the organization's configured help response through Sent.dm.
+
+Full async/Celery processing and AI reply generation are still pending; see `.codex/REMAINING_WORK.md` for the live checklist.
