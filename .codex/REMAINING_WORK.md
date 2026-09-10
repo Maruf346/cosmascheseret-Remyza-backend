@@ -96,19 +96,14 @@ STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT
 
 ## 7. AI REPLY INTEGRATION
 
-- [ ] Build service boundary for inbound AI reply generation:
-
-```text
-process_inbound_sentdm_event(event)
-```
-
-- [ ] Connect inbound Sent.dm message to existing AI reply service.
-- [ ] Ensure AI uses organization/agent business settings.
-- [ ] Send AI reply through Sent.dm using the correct Sender Profile.
-- [ ] Store outbound AI reply in `SentDMMessage`.
-- [ ] Store outbound AI reply in conversation history.
-- [ ] Add tests for AI reply service with mocked OpenAI and mocked Sent.dm client.
-
+- [x] Build service boundary for inbound AI reply generation inside `process_sentdm_webhook_event(event)`.
+- [x] Connect inbound Sent.dm message to the existing AI reply service.
+- [~] Ensure AI uses organization/agent business settings. Current flow uses the existing shared AI service; next prompt-hardening pass should inject business name/use-case constraints.
+- [x] Send AI reply through Sent.dm using the correct Sender Profile.
+- [x] Store outbound AI reply in `SentDMMessage`.
+- [x] Store outbound AI reply in conversation history.
+- [x] Disable AI for HOT leads after reply so a human can take over.
+- [x] Add tests for AI reply service with mocked OpenAI and mocked Sent.dm client.
 ## 8. AI COMPLIANCE RULES
 
 - [ ] Update AI prompts to enforce Sent.dm/10DLC compliance.

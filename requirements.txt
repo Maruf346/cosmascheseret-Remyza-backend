@@ -21,6 +21,7 @@ inflection==0.5.1
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 multidict==6.7.1
+openai==0.28.1
 pillow==12.3.0
 propcache==0.5.2
 PyJWT==2.13.0

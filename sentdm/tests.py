@@ -13,12 +13,13 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from accounts.models import User
 from business.models import Organization, PhoneNumber
 from communications.choices import ConversationStatus
+from crm.choices import LeadStage
 from communications.models import Conversation, Message
 from crm.models import FollowUpReminder, Lead
 from subscription.models import UserSubscription
 
 from .client import SentDMClient, SentDMClientError
-from .models import SentDMProfile, SentDMWebhookEvent
+from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
 from .services import build_10dlc_campaign_payload, build_profile_payload, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, verify_webhook_signature
 from .tasks import process_sentdm_webhook_event_task
 from .views import SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
@@ -462,6 +463,80 @@ class SentDMWebhookProcessingTests(TestCase):
         self.assertTrue(Message.objects.filter(provider_message_sid="msg_help_reply").exists())
         mocked_client.return_value.send_message.assert_called_once()
 
+    @patch("sentdm.services.SentDMClient")
+    @patch("sentdm.services.AIService")
+    def test_regular_inbound_webhook_sends_ai_reply(self, mocked_ai_service, mocked_client):
+        mocked_ai_service.return_value.generate_reply_and_stage.return_value = {
+            "reply": "Hi there, thanks for reaching out. Reply STOP to opt out.",
+            "stage": "WARM",
+        }
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_ai_reply"}]}
+        }
+        event = self.create_message_event(text="I need help buying a home", message_id="msg_ai_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        lead = Lead.objects.get(organization=self.organization, contact_number="+15551112222")
+        conversation = Conversation.objects.get(organization=self.organization, lead=lead)
+        outbound_message = Message.objects.get(provider_message_sid="msg_ai_reply")
+        event.refresh_from_db()
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "ai_reply_sent")
+        self.assertEqual(lead.stage, LeadStage.QUALIFIED)
+        self.assertTrue(lead.ai_enabled)
+        self.assertTrue(conversation.ai_enabled)
+        self.assertTrue(outbound_message.is_ai_generated)
+        self.assertEqual(outbound_message.content, "Hi there, thanks for reaching out. Reply STOP to opt out.")
+        self.assertTrue(SentDMMessage.objects.filter(sent_message_id="msg_ai_reply", lead=lead).exists())
+        self.assertEqual(event.status, "processed")
+        mocked_client.return_value.send_message.assert_called_once()
+        self.assertEqual(mocked_client.return_value.send_message.call_args.kwargs["channel"], "sms")
+
+    @patch("sentdm.services.SentDMClient")
+    @patch("sentdm.services.AIService")
+    def test_opted_out_lead_does_not_trigger_ai_reply(self, mocked_ai_service, mocked_client):
+        Lead.objects.create(
+            organization=self.organization,
+            business_phone=self.business_phone,
+            contact_number="+15551112222",
+            is_opted_out=True,
+            ai_enabled=False,
+        )
+        event = self.create_message_event(text="Hello again", message_id="msg_opted_out_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "lead_opted_out")
+        self.assertEqual(result["ai"]["reason"], "lead_opted_out")
+        mocked_ai_service.assert_not_called()
+        mocked_client.return_value.send_message.assert_not_called()
+
+    @patch("sentdm.services.SentDMClient")
+    @patch("sentdm.services.AIService")
+    def test_hot_ai_reply_disables_ai_for_handoff(self, mocked_ai_service, mocked_client):
+        mocked_ai_service.return_value.generate_reply_and_stage.return_value = {
+            "reply": "I will have the agent follow up with you. Reply STOP to opt out.",
+            "stage": "HOT",
+        }
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_hot_reply"}]}
+        }
+        event = self.create_message_event(text="I am ready to book", message_id="msg_hot_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        lead = Lead.objects.get(organization=self.organization, contact_number="+15551112222")
+        conversation = Conversation.objects.get(organization=self.organization, lead=lead)
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "ai_reply_sent")
+        self.assertEqual(lead.stage, LeadStage.HOT)
+        self.assertFalse(lead.ai_enabled)
+        self.assertIsNotNone(lead.handed_over_at)
+        self.assertFalse(conversation.ai_enabled)
 class SentDMWebhookAsyncQueueTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()

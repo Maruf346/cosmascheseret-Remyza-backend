@@ -406,3 +406,18 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test sentdm` (22 tests)
   - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
   - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm` (33 tests)
+
+## 2026-09-10 - Sent.dm Webhook AI Reply Integration
+
+- Added Sent.dm inbound AI reply handling in the background webhook processor after STOP/HELP checks.
+- Normal inbound messages now create/update lead and conversation history, call the existing AI reply service, send the AI response through the matched Sent.dm Sender Profile, and store the outbound response in both `SentDMMessage` and `communications.Message`.
+- Added opt-out and AI-disabled guards so opted-out leads or disabled conversations do not trigger OpenAI/Sent.dm outbound sends.
+- HOT AI stages now mark the lead hot, disable lead/conversation AI, and set `handed_over_at` for human takeover.
+- Fixed the existing AI history direction check so lowercase `inbound` messages are treated as user messages.
+- Made `ai.ai_service` import safely when the OpenAI SDK is not installed locally; it keeps the existing fallback reply behavior.
+- Added regression tests for normal AI replies, opted-out lead suppression, and HOT lead handoff behavior.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q ai sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm` (25 tests)
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm` (36 tests)

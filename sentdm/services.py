@@ -11,9 +11,11 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 
+from ai.ai_service import AIService
 from business.models import PhoneNumber, PhoneNumberStatus
 from communications.choices import ConversationStatus, MessageDirection, MessageStatus
 from communications.models import Conversation, Message
+from crm.choices import LeadStage
 from crm.models import FollowUpReminder, Lead
 
 from .choices import SentDMChannel, SentDMCampaignStatus, SentDMMessageDirection, SentDMMessageStatus, SentDMProfileStatus, SentDMWebhookEventStatus
@@ -687,6 +689,104 @@ def send_control_autoresponse(profile, lead, conversation, text, channel, kind):
     return sentdm_message
 
 
+def normalize_ai_stage(stage):
+    stage_value = (stage or "").strip().lower()
+    if stage_value == "cold":
+        return LeadStage.CONTACTED
+    if stage_value == "warm":
+        return LeadStage.QUALIFIED
+    if stage_value == "hot":
+        return LeadStage.HOT
+    if stage_value in LeadStage.values:
+        return stage_value
+    return LeadStage.CONTACTED
+
+
+def outbound_channel_for_reply(channel):
+    if channel in SentDMChannel.values and channel != SentDMChannel.AUTO:
+        return channel
+    return None
+
+
+def send_ai_reply_for_inbound(profile, lead, conversation, channel):
+    if not profile or not lead or not conversation:
+        return {"sent": False, "reason": "missing_routing_context"}
+    if lead.is_opted_out:
+        return {"sent": False, "reason": "lead_opted_out"}
+    if not lead.ai_enabled or not conversation.ai_enabled:
+        return {"sent": False, "reason": "ai_disabled"}
+
+    history = conversation.messages.order_by("created_at")
+    ai_response = AIService().generate_reply_and_stage(history)
+    reply_text = (ai_response.get("reply") or "").strip()
+    if not reply_text:
+        return {"sent": False, "reason": "empty_ai_reply"}
+
+    response = SentDMClient().send_message(
+        to=lead.contact_number,
+        text=reply_text,
+        profile_id=profile.profile_id,
+        channel=outbound_channel_for_reply(channel),
+        idempotency_key=f"chesera-sentdm-ai-{conversation.id}-{int(time.time())}",
+    )
+    message_id = extract_first_message_id(response) or f"sentdm-ai-{conversation.id}-{int(time.time())}"
+    sentdm_status = normalize_message_status(response)
+    from_number = profile.whatsapp_phone_number if channel == SentDMChannel.WHATSAPP and profile.whatsapp_phone_number else profile.phone_number
+
+    sentdm_message = SentDMMessage.objects.create(
+        organization=profile.organization,
+        profile=profile,
+        lead=lead,
+        conversation=conversation,
+        sent_message_id=message_id,
+        direction=SentDMMessageDirection.OUTBOUND,
+        channel=channel or SentDMChannel.AUTO,
+        from_number=from_number,
+        to_number=lead.contact_number,
+        body=reply_text,
+        status=sentdm_status,
+        sandbox=getattr(settings, "SENTDM_SANDBOX_MODE", True),
+        raw_response=response,
+    )
+    message_status = MessageStatus.QUEUED if sentdm_status == SentDMMessageStatus.QUEUED else MessageStatus.SENT
+    Message.objects.get_or_create(
+        provider_message_sid=message_id,
+        defaults={
+            "lead": lead,
+            "conversation": conversation,
+            "direction": MessageDirection.OUTBOUND,
+            "sender": from_number[:20],
+            "recipient": lead.contact_number[:20],
+            "content": reply_text,
+            "provider_status": sentdm_status,
+            "status": message_status,
+            "is_ai_generated": True,
+            "metadata": {"source": "sentdm", "channel": channel or "auto", "ai_stage": ai_response.get("stage", "")},
+        },
+    )
+
+    now = timezone.now()
+    lead.stage = normalize_ai_stage(ai_response.get("stage"))
+    lead.last_message_at = now
+    lead.last_outgoing_at = now
+    lead.last_ai_reply_at = now
+    lead_update_fields = ["stage", "last_message_at", "last_outgoing_at", "last_ai_reply_at", "updated_at"]
+    if lead.stage == LeadStage.HOT:
+        lead.ai_enabled = False
+        lead.handed_over_at = lead.handed_over_at or now
+        lead_update_fields.extend(["ai_enabled", "handed_over_at"])
+        conversation.ai_enabled = False
+    lead.save(update_fields=lead_update_fields)
+
+    conversation.total_messages += 1
+    conversation.last_message_at = now
+    conversation_update_fields = ["total_messages", "last_message_at", "updated_at"]
+    if not conversation.ai_enabled:
+        conversation_update_fields.append("ai_enabled")
+    conversation.save(update_fields=conversation_update_fields)
+
+    return {"sent": True, "message_id": sentdm_message.sent_message_id, "stage": lead.stage}
+
 def apply_opt_out(lead, keyword):
     now = timezone.now()
     lead.is_opted_out = True
@@ -735,8 +835,17 @@ def process_sentdm_webhook_event(event):
                 event.mark_processed()
                 return {"processed": True, "action": "help", "keyword": keyword, "lead_id": lead.id}
 
+            try:
+                ai_result = send_ai_reply_for_inbound(profile, lead, conversation, details.get("channel"))
+            except Exception as exc:
+                ai_result = {"sent": False, "reason": "ai_reply_failed", "error": str(exc)}
             event.mark_processed()
-            return {"processed": True, "action": "stored_inbound", "lead_id": lead.id if lead else None}
+            return {
+                "processed": True,
+                "action": "ai_reply_sent" if ai_result.get("sent") else ai_result.get("reason", "stored_inbound"),
+                "lead_id": lead.id if lead else None,
+                "ai": ai_result,
+            }
     except (ImproperlyConfigured, SentDMClientError, Exception) as exc:
         event.status = SentDMWebhookEventStatus.FAILED
         event.error_message = str(exc)
