@@ -30,9 +30,4 @@ class Migration(migrations.Migration):
             name='opted_out_at',
             field=models.DateTimeField(blank=True, null=True),
         ),
-        migrations.AlterField(
-            model_name='followupreminder',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
-        ),
     ]

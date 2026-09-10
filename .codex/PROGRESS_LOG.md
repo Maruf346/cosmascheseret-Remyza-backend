@@ -375,3 +375,16 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py migrate crm`
   - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
   - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm`
+
+## 2026-09-10 - Production CRM Migration and Staticfiles Warning Fix
+
+- AWS deployment failed because `crm.0004_lead_is_opted_out_lead_opt_out_keyword_and_more` tried to alter `crm_followup_reminders.id` from UUID to bigint on PostgreSQL.
+- Patched the migration to only add the new lead opt-out fields and avoid the unsafe UUID-to-bigint cast.
+- Updated `FollowUpReminder.id` in the model to explicitly remain a UUID primary key, matching the existing production migration history from `crm.0002`.
+- Updated `STATICFILES_DIRS` so `/app/static` is only included when the directory exists, removing the production `staticfiles.W004` warning after the old static/public folder cleanup.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe -m compileall -q crm sentdm core`
+  - `.venv\Scripts\python.exe manage.py test sentdm`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm`

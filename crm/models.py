@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from common.models import BaseModel
 from .choices import LeadStage, LeadActivityType
@@ -89,6 +91,7 @@ class LeadTagAssignment(BaseModel):
         return f"{self.lead.contact_number} → {self.tag.name}"
 
 class FollowUpReminder(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="reminders")
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="reminders")
     scheduled_time = models.DateTimeField(db_index=True)
