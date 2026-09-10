@@ -405,10 +405,14 @@ class SentDMInboundWebhookAPIView(APIView):
         if not accepted:
             return Response({"success": False, "message": "Invalid webhook signature."}, status=status.HTTP_401_UNAUTHORIZED)
 
+        queue_result = enqueue_sentdm_webhook_event(event)
+        event.refresh_from_db()
+
         return Response(
             {
                 "success": True,
                 "message": "Sent.dm inbound webhook received.",
+                "processing": queue_result,
                 "data": SentDMWebhookEventSerializer(event).data,
             },
             status=status.HTTP_200_OK,

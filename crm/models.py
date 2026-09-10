@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from common.models import BaseModel
 from .choices import LeadStage, LeadActivityType
@@ -13,6 +15,10 @@ class Lead(BaseModel):
     stage = models.CharField(max_length=20, choices=LeadStage.choices, default=LeadStage.NEW, db_index=True)
     score = models.PositiveSmallIntegerField(default=0)
     ai_enabled = models.BooleanField(default=True)
+    is_opted_out = models.BooleanField(default=False, db_index=True)
+    opted_out_at = models.DateTimeField(null=True, blank=True)
+    opt_out_keyword = models.CharField(max_length=30, blank=True, default="")
+    opt_out_source = models.CharField(max_length=50, blank=True, default="")
     
     # assigned_to = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_leads")
     handed_over_at = models.DateTimeField(null=True, blank=True)
@@ -85,6 +91,7 @@ class LeadTagAssignment(BaseModel):
         return f"{self.lead.contact_number} → {self.tag.name}"
 
 class FollowUpReminder(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="reminders")
     lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="reminders")
     scheduled_time = models.DateTimeField(db_index=True)

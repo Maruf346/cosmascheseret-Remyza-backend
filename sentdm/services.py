@@ -1,14 +1,25 @@
+import base64
+import binascii
 import hashlib
 import hmac
 import json
 import time
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 
-from .choices import SentDMCampaignStatus, SentDMMessageDirection, SentDMMessageStatus, SentDMProfileStatus
-from .client import SentDMClient
+from ai.ai_service import AIService
+from business.models import PhoneNumber, PhoneNumberStatus
+from communications.choices import ConversationStatus, MessageDirection, MessageStatus
+from communications.models import Conversation, Message
+from crm.choices import LeadStage
+from crm.models import FollowUpReminder, Lead
+
+from .choices import SentDMChannel, SentDMCampaignStatus, SentDMMessageDirection, SentDMMessageStatus, SentDMProfileStatus, SentDMWebhookEventStatus
+from .client import SentDMClient, SentDMClientError
 from .models import SentDMCampaign, SentDMMessage, SentDMProfile, SentDMWebhookEvent
 
 
@@ -433,6 +444,430 @@ def send_live_message(*, user, to, text, profile=None, channel="auto"):
     )
 
 
+WEBHOOK_VALUE_CONTAINERS = ("payload", "data", "message", "event", "contact", "sender", "recipient")
+
+
+def _first_scalar_value(payload, keys):
+    if not isinstance(payload, dict):
+        return ""
+
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, "", [], {}) and not isinstance(value, (dict, list)):
+            return str(value).strip()
+
+    for key in WEBHOOK_VALUE_CONTAINERS:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            found = _first_scalar_value(value, keys)
+            if found:
+                return found
+    return ""
+
+
+def extract_sentdm_webhook_message(payload):
+    profile_id = _first_scalar_value(payload, ("profile_id", "profileId", "sender_profile_id", "senderProfileId"))
+    message_id = _first_scalar_value(payload, ("message_id", "messageId", "id", "sid"))
+    event_type = _first_scalar_value(payload, ("sub_type", "subType", "type", "event_type", "eventType", "event"))
+    direction = _first_scalar_value(payload, ("direction",)).lower()
+    channel = _first_scalar_value(payload, ("channel", "preferred_channel")) or SentDMChannel.AUTO
+    body = _first_scalar_value(payload, ("text", "body", "message", "content"))
+    from_number = _first_scalar_value(
+        payload,
+        ("from_number", "fromNumber", "from", "sender", "sender_number", "senderNumber", "contact_number", "contactNumber", "customer_number", "customerNumber", "inbound_number", "inboundNumber"),
+    )
+    to_number = _first_scalar_value(
+        payload,
+        ("to_number", "toNumber", "to", "recipient", "recipient_number", "recipientNumber", "business_number", "businessNumber", "outbound_number", "outboundNumber"),
+    )
+
+    return {
+        "profile_id": profile_id,
+        "message_id": message_id,
+        "event_type": event_type,
+        "direction": direction,
+        "channel": channel.lower(),
+        "body": body,
+        "from_number": from_number,
+        "to_number": to_number,
+    }
+
+
+def is_inbound_message_webhook(event, details):
+    haystack = " ".join(
+        str(value or "").lower()
+        for value in (event.event_type, details.get("event_type"), details.get("direction"))
+    )
+    return "message.received" in haystack or "received" in haystack or details.get("direction") == "inbound"
+
+
+def get_control_keyword(text):
+    first_word = "".join(char for char in (text or "").strip().split(" ", 1)[0].upper() if char.isalpha())
+    if first_word in OPT_OUT_KEYWORDS or first_word in HELP_KEYWORDS:
+        return first_word
+    return ""
+
+
+def get_profile_for_webhook(details):
+    profile_id = details.get("profile_id")
+    if profile_id:
+        profile = SentDMProfile.objects.filter(profile_id=profile_id).select_related("organization", "user").first()
+        if profile:
+            return profile
+
+    candidates = [details.get("to_number"), details.get("from_number")]
+    return SentDMProfile.objects.filter(
+        phone_number__in=[number for number in candidates if number]
+    ).select_related("organization", "user").first() or SentDMProfile.objects.filter(
+        whatsapp_phone_number__in=[number for number in candidates if number]
+    ).select_related("organization", "user").first()
+
+
+def get_or_create_business_phone(profile, organization, details):
+    candidates = [details.get("to_number"), profile.phone_number if profile else "", profile.whatsapp_phone_number if profile else ""]
+    for number in [candidate for candidate in candidates if candidate]:
+        phone = PhoneNumber.objects.filter(organization=organization, phone_number=number).first()
+        if phone:
+            return phone
+
+    number = next((candidate for candidate in candidates if candidate), "")
+    if not number:
+        return None
+
+    provider_sid = f"sentdm:{profile.profile_id if profile else number}"[:100]
+    is_primary = not PhoneNumber.objects.filter(organization=organization, is_primary=True).exists()
+    existing_phone = PhoneNumber.objects.filter(phone_number=number).first()
+    if existing_phone:
+        return existing_phone if existing_phone.organization_id == organization.id else None
+
+    phone = PhoneNumber.objects.create(
+        phone_number=number,
+        organization=organization,
+        provider_phone_sid=provider_sid,
+        status=PhoneNumberStatus.ACTIVE,
+        is_primary=is_primary,
+        capabilities={"sms": True, "rcs": True, "whatsapp": bool(profile and profile.whatsapp_phone_number == number)},
+        metadata={"source": "sentdm_webhook", "profile_id": profile.profile_id if profile else ""},
+    )
+    return phone
+
+
+def get_or_create_lead_and_conversation(profile, details):
+    organization = profile.organization if profile else None
+    if not organization or not details.get("from_number"):
+        return None, None
+
+    business_phone = get_or_create_business_phone(profile, organization, details)
+    if not business_phone:
+        return None, None
+
+    now = timezone.now()
+    lead, _ = Lead.objects.get_or_create(
+        organization=organization,
+        contact_number=details["from_number"],
+        defaults={"business_phone": business_phone},
+    )
+    lead.last_message_at = now
+    lead.last_incoming_at = now
+    lead.save(update_fields=["last_message_at", "last_incoming_at", "updated_at"])
+
+    conversation = Conversation.objects.filter(
+        organization=organization,
+        lead=lead,
+        status=ConversationStatus.ACTIVE,
+    ).first()
+    if not conversation:
+        conversation = Conversation.objects.create(
+            organization=organization,
+            lead=lead,
+            status=ConversationStatus.ACTIVE,
+            last_message_at=now,
+        )
+    else:
+        conversation.last_message_at = now
+        conversation.unread_messages += 1
+        conversation.save(update_fields=["last_message_at", "unread_messages", "updated_at"])
+
+    return lead, conversation
+
+
+def store_inbound_sentdm_message(event, profile, lead, conversation, details):
+    message_id = details.get("message_id") or f"sentdm-webhook-{event.pk}"
+    sentdm_message = SentDMMessage.objects.filter(
+        sent_message_id=message_id,
+        direction=SentDMMessageDirection.INBOUND,
+    ).first()
+    if not sentdm_message:
+        sentdm_message = SentDMMessage.objects.create(
+            organization=profile.organization if profile else None,
+            profile=profile,
+            lead=lead,
+            conversation=conversation,
+            sent_message_id=message_id,
+            direction=SentDMMessageDirection.INBOUND,
+            channel=details.get("channel") or SentDMChannel.AUTO,
+            from_number=details.get("from_number", ""),
+            to_number=details.get("to_number", ""),
+            body=details.get("body", ""),
+            status=SentDMMessageStatus.DELIVERED,
+            sandbox=getattr(settings, "SENTDM_SANDBOX_MODE", True),
+            raw_response=event.payload,
+        )
+
+    if lead and conversation:
+        message, created = Message.objects.get_or_create(
+            provider_message_sid=message_id,
+            defaults={
+                "lead": lead,
+                "conversation": conversation,
+                "direction": MessageDirection.INBOUND,
+                "sender": details.get("from_number", "")[:20],
+                "recipient": details.get("to_number", "")[:20],
+                "content": details.get("body", ""),
+                "provider_status": "received",
+                "status": MessageStatus.DELIVERED,
+                "metadata": {"source": "sentdm", "webhook_event_id": event.pk, "channel": details.get("channel", "auto")},
+            },
+        )
+        if created:
+            conversation.total_messages += 1
+            conversation.unread_messages += 1
+            conversation.last_message_at = timezone.now()
+            conversation.save(update_fields=["total_messages", "unread_messages", "last_message_at", "updated_at"])
+
+    return sentdm_message
+
+
+def send_control_autoresponse(profile, lead, conversation, text, channel, kind):
+    if not profile or not lead or not text:
+        return None
+
+    try:
+        response = SentDMClient().send_message(
+            to=lead.contact_number,
+            text=text,
+            profile_id=profile.profile_id,
+            channel=channel if channel in SentDMChannel.values and channel != SentDMChannel.AUTO else None,
+            idempotency_key=f"chesera-sentdm-{kind}-{lead.id}-{int(time.time())}",
+        )
+    except (ImproperlyConfigured, SentDMClientError):
+        return None
+    message_id = extract_first_message_id(response) or f"sentdm-{kind}-{lead.id}-{int(time.time())}"
+    sentdm_message = SentDMMessage.objects.create(
+        organization=profile.organization,
+        profile=profile,
+        lead=lead,
+        conversation=conversation,
+        sent_message_id=message_id,
+        direction=SentDMMessageDirection.OUTBOUND,
+        channel=channel or SentDMChannel.AUTO,
+        from_number=profile.phone_number or profile.whatsapp_phone_number,
+        to_number=lead.contact_number,
+        body=text,
+        status=normalize_message_status(response),
+        sandbox=getattr(settings, "SENTDM_SANDBOX_MODE", True),
+        raw_response=response,
+    )
+    if conversation:
+        Message.objects.get_or_create(
+            provider_message_sid=message_id,
+            defaults={
+                "lead": lead,
+                "conversation": conversation,
+                "direction": MessageDirection.OUTBOUND,
+                "sender": sentdm_message.from_number[:20],
+                "recipient": lead.contact_number[:20],
+                "content": text,
+                "provider_status": sentdm_message.status,
+                "status": MessageStatus.QUEUED if sentdm_message.status == SentDMMessageStatus.QUEUED else MessageStatus.SENT,
+                "metadata": {"source": "sentdm", "control_response": kind, "channel": channel or "auto"},
+            },
+        )
+        conversation.total_messages += 1
+        conversation.last_message_at = timezone.now()
+        conversation.save(update_fields=["total_messages", "last_message_at", "updated_at"])
+    return sentdm_message
+
+
+def normalize_ai_stage(stage):
+    stage_value = (stage or "").strip().lower()
+    if stage_value == "cold":
+        return LeadStage.CONTACTED
+    if stage_value == "warm":
+        return LeadStage.QUALIFIED
+    if stage_value == "hot":
+        return LeadStage.HOT
+    if stage_value in LeadStage.values:
+        return stage_value
+    return LeadStage.CONTACTED
+
+
+def outbound_channel_for_reply(channel):
+    if channel in SentDMChannel.values and channel != SentDMChannel.AUTO:
+        return channel
+    return None
+
+
+def send_ai_reply_for_inbound(profile, lead, conversation, channel):
+    if not profile or not lead or not conversation:
+        return {"sent": False, "reason": "missing_routing_context"}
+    if lead.is_opted_out:
+        return {"sent": False, "reason": "lead_opted_out"}
+    if not lead.ai_enabled or not conversation.ai_enabled:
+        return {"sent": False, "reason": "ai_disabled"}
+
+    history = conversation.messages.order_by("created_at")
+    ai_response = AIService().generate_reply_and_stage(history)
+    reply_text = (ai_response.get("reply") or "").strip()
+    if not reply_text:
+        return {"sent": False, "reason": "empty_ai_reply"}
+
+    response = SentDMClient().send_message(
+        to=lead.contact_number,
+        text=reply_text,
+        profile_id=profile.profile_id,
+        channel=outbound_channel_for_reply(channel),
+        idempotency_key=f"chesera-sentdm-ai-{conversation.id}-{int(time.time())}",
+    )
+    message_id = extract_first_message_id(response) or f"sentdm-ai-{conversation.id}-{int(time.time())}"
+    sentdm_status = normalize_message_status(response)
+    from_number = profile.whatsapp_phone_number if channel == SentDMChannel.WHATSAPP and profile.whatsapp_phone_number else profile.phone_number
+
+    sentdm_message = SentDMMessage.objects.create(
+        organization=profile.organization,
+        profile=profile,
+        lead=lead,
+        conversation=conversation,
+        sent_message_id=message_id,
+        direction=SentDMMessageDirection.OUTBOUND,
+        channel=channel or SentDMChannel.AUTO,
+        from_number=from_number,
+        to_number=lead.contact_number,
+        body=reply_text,
+        status=sentdm_status,
+        sandbox=getattr(settings, "SENTDM_SANDBOX_MODE", True),
+        raw_response=response,
+    )
+    message_status = MessageStatus.QUEUED if sentdm_status == SentDMMessageStatus.QUEUED else MessageStatus.SENT
+    Message.objects.get_or_create(
+        provider_message_sid=message_id,
+        defaults={
+            "lead": lead,
+            "conversation": conversation,
+            "direction": MessageDirection.OUTBOUND,
+            "sender": from_number[:20],
+            "recipient": lead.contact_number[:20],
+            "content": reply_text,
+            "provider_status": sentdm_status,
+            "status": message_status,
+            "is_ai_generated": True,
+            "metadata": {"source": "sentdm", "channel": channel or "auto", "ai_stage": ai_response.get("stage", "")},
+        },
+    )
+
+    now = timezone.now()
+    lead.stage = normalize_ai_stage(ai_response.get("stage"))
+    lead.last_message_at = now
+    lead.last_outgoing_at = now
+    lead.last_ai_reply_at = now
+    lead_update_fields = ["stage", "last_message_at", "last_outgoing_at", "last_ai_reply_at", "updated_at"]
+    if lead.stage == LeadStage.HOT:
+        lead.ai_enabled = False
+        lead.handed_over_at = lead.handed_over_at or now
+        lead_update_fields.extend(["ai_enabled", "handed_over_at"])
+        conversation.ai_enabled = False
+    lead.save(update_fields=lead_update_fields)
+
+    conversation.total_messages += 1
+    conversation.last_message_at = now
+    conversation_update_fields = ["total_messages", "last_message_at", "updated_at"]
+    if not conversation.ai_enabled:
+        conversation_update_fields.append("ai_enabled")
+    conversation.save(update_fields=conversation_update_fields)
+
+    return {"sent": True, "message_id": sentdm_message.sent_message_id, "stage": lead.stage}
+
+def apply_opt_out(lead, keyword):
+    now = timezone.now()
+    lead.is_opted_out = True
+    lead.opted_out_at = lead.opted_out_at or now
+    lead.opt_out_keyword = keyword
+    lead.opt_out_source = "sentdm"
+    lead.ai_enabled = False
+    lead.save(update_fields=["is_opted_out", "opted_out_at", "opt_out_keyword", "opt_out_source", "ai_enabled", "updated_at"])
+    Conversation.objects.filter(lead=lead, status=ConversationStatus.ACTIVE).update(
+        status=ConversationStatus.CLOSED,
+        ai_enabled=False,
+        closed_at=now,
+        updated_at=now,
+    )
+    FollowUpReminder.objects.filter(lead=lead, is_sent=False).update(is_sent=True, updated_at=now)
+
+
+def process_sentdm_webhook_event(event):
+    try:
+        with transaction.atomic():
+            details = extract_sentdm_webhook_message(event.payload)
+            if details.get("profile_id") and not event.profile_id:
+                event.profile_id = details["profile_id"]
+                event.save(update_fields=["profile_id", "updated_at"])
+
+            if not is_inbound_message_webhook(event, details):
+                event.mark_processed()
+                return {"processed": True, "action": "ignored_non_inbound", "details": details}
+
+            profile = get_profile_for_webhook(details)
+            lead, conversation = get_or_create_lead_and_conversation(profile, details)
+            store_inbound_sentdm_message(event, profile, lead, conversation, details)
+
+            keyword = get_control_keyword(details.get("body"))
+            if lead and keyword in OPT_OUT_KEYWORDS:
+                apply_opt_out(lead, keyword)
+                text = profile.organization.sentdm_opt_out_confirmation_message if profile and profile.organization else "You have been unsubscribed and will not receive more messages."
+                send_control_autoresponse(profile, lead, conversation, text, details.get("channel"), "optout")
+                event.mark_processed()
+                return {"processed": True, "action": "opt_out", "keyword": keyword, "lead_id": lead.id}
+
+            if lead and keyword in HELP_KEYWORDS:
+                organization = profile.organization if profile else lead.organization
+                text = organization.sentdm_help_response_message or f"{organization.name}: Contact {organization.sentdm_support_email or organization.email} for support. Reply STOP to opt out."
+                send_control_autoresponse(profile, lead, conversation, text, details.get("channel"), "help")
+                event.mark_processed()
+                return {"processed": True, "action": "help", "keyword": keyword, "lead_id": lead.id}
+
+            try:
+                ai_result = send_ai_reply_for_inbound(profile, lead, conversation, details.get("channel"))
+            except Exception as exc:
+                ai_result = {"sent": False, "reason": "ai_reply_failed", "error": str(exc)}
+            event.mark_processed()
+            return {
+                "processed": True,
+                "action": "ai_reply_sent" if ai_result.get("sent") else ai_result.get("reason", "stored_inbound"),
+                "lead_id": lead.id if lead else None,
+                "ai": ai_result,
+            }
+    except (ImproperlyConfigured, SentDMClientError, Exception) as exc:
+        event.status = SentDMWebhookEventStatus.FAILED
+        event.error_message = str(exc)
+        event.save(update_fields=["status", "error_message", "updated_at"])
+        return {"processed": False, "action": "failed", "error": str(exc)}
+
+def enqueue_sentdm_webhook_event(event):
+    if not getattr(settings, "SENTDM_WEBHOOK_ASYNC_ENABLED", True) or getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        result = process_sentdm_webhook_event(event)
+        return {"queued": False, "processed_inline": True, "result": result}
+
+    try:
+        from .tasks import process_sentdm_webhook_event_task
+
+        async_result = process_sentdm_webhook_event_task.delay(event.pk)
+        return {"queued": True, "task_id": async_result.id, "processed_inline": False}
+    except Exception as exc:
+        event.status = SentDMWebhookEventStatus.FAILED
+        event.error_message = f"Failed to enqueue webhook event: {exc}"
+        event.save(update_fields=["status", "error_message", "updated_at"])
+        return {"queued": False, "processed_inline": False, "error": str(exc)}
+
 def verify_webhook_signature(request):
     secret = getattr(settings, "SENTDM_WEBHOOK_SECRET", "")
     if not secret:
@@ -453,8 +888,15 @@ def verify_webhook_signature(request):
     if age > getattr(settings, "SENTDM_WEBHOOK_TOLERANCE_SECONDS", 300):
         return False
 
+    secret_value = secret.removeprefix("whsec_")
+    try:
+        secret_key = base64.b64decode(secret_value, validate=True)
+    except (binascii.Error, ValueError):
+        secret_key = secret.encode()
+
     signed_content = webhook_id.encode() + b"." + timestamp.encode() + b"." + request.body
-    expected = hmac.new(secret.encode(), signed_content, hashlib.sha256).hexdigest()
+    digest = hmac.new(secret_key, signed_content, hashlib.sha256).digest()
+    expected = f"v1,{base64.b64encode(digest).decode()}"
     return hmac.compare_digest(signature, expected)
 
 

@@ -1,16 +1,30 @@
-﻿# ============================================================
+# ============================================================
 # Production Docker Compose - Remyza / Chesera Backend
 # Used on EC2. PostgreSQL and S3 are AWS-managed (not here).
 # ============================================================
-version: "3.9"
-
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: cheshara_redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   backend:
     image: ${DOCKER_IMAGE:-remyza-backend}:${IMAGE_TAG:-latest}
     container_name: cheshara_backend
     restart: always
     env_file:
       - .env
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8005:8005"
     healthcheck:
@@ -24,3 +38,24 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  worker:
+    image: ${DOCKER_IMAGE:-remyza-backend}:${IMAGE_TAG:-latest}
+    container_name: cheshara_worker
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    command: celery -A cheshara_config worker --loglevel=info --queues=sentdm,celery
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis_data:

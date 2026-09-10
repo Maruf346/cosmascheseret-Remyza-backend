@@ -116,9 +116,8 @@ SPECTACULAR_SETTINGS = {
 MIDDLEWARE = [
     # library middleware
     'corsheaders.middleware.CorsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
-    
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -128,6 +127,7 @@ MIDDLEWARE = [
 ]
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 ROOT_URLCONF = 'cheshara_config.urls'
 
 TEMPLATES = [
@@ -204,7 +204,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
 
 # Media / Storage
 # When USE_S3=True, media files are stored in AWS S3 via django-storages.
@@ -258,3 +258,13 @@ SENTDM_ORGANIZATION_ID = os.getenv("SENTDM_ORGANIZATION_ID", "")
 SENTDM_SANDBOX_MODE = os.getenv("SENTDM_SANDBOX_MODE", "True").strip().lower() in ("true", "1", "yes")
 SENTDM_WEBHOOK_SECRET = os.getenv("SENTDM_WEBHOOK_SECRET", "")
 SENTDM_WEBHOOK_TOLERANCE_SECONDS = int(os.getenv("SENTDM_WEBHOOK_TOLERANCE_SECONDS", "300"))
+# Celery / background workers
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "False").strip().lower() in ("true", "1", "yes")
+CELERY_TASK_EAGER_PROPAGATES = True
+SENTDM_WEBHOOK_ASYNC_ENABLED = os.getenv("SENTDM_WEBHOOK_ASYNC_ENABLED", "True").strip().lower() in ("true", "1", "yes")

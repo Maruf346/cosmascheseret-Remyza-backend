@@ -1,13 +1,17 @@
 import os
 import json
-import openai
+try:
+    import openai
+except ImportError:
+    openai = None
 from django.conf import settings
 from communications.models import Message
 from crm.models import LeadStage
 
 class AIService:
     def __init__(self):
-        openai.api_key = getattr(settings, 'OPENAI_API_KEY', os.getenv("OPENAI_API_KEY"))
+        if openai:
+            openai.api_key = getattr(settings, 'OPENAI_API_KEY', os.getenv("OPENAI_API_KEY"))
 
     def generate_reply_and_stage(self, conversation_history) -> dict:
         """
@@ -28,7 +32,7 @@ class AIService:
         # Expecting Django queryset or list of Message objects
         # We take the last 10 messages for context
         for msg in list(conversation_history)[-10:]:
-            role = "user" if msg.direction == "INBOUND" else "assistant"
+            role = "user" if str(msg.direction).lower() == "inbound" else "assistant"
             messages.append({"role": role, "content": msg.content})
 
         try:

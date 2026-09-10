@@ -27,7 +27,8 @@ def send_follow_up_reminders():
     now = timezone.now()
     due_reminders = FollowUpReminder.objects.filter(
         scheduled_time__lte=now,
-        is_sent=False
+        is_sent=False,
+        lead__is_opted_out=False,
     )
 
     for reminder in due_reminders:

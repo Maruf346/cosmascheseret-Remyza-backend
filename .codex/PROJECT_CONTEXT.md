@@ -65,5 +65,19 @@ Last known local checks:
 
 - `python manage.py check` passed.
 - Full Python compile passed after the local verification comma fix.
-- Existing Django tests contain no real coverage and `manage.py test` reports 0 tests.
+- Focused backend tests now cover subscription, Sent.dm profile/campaign helpers, optional WhatsApp payloads, webhook signature verification, and STOP/HELP webhook processing.
 
+
+## CURRENT SENT.DM WEBHOOK PROCESSING STATE
+
+As of 2026-09-09, the deployed HTTPS webhook URL receives Sent.dm events:
+
+```text
+https://api.trychesera.com/api/v1/sentdm/webhooks/inbound/
+```
+
+The backend now verifies Sent.dm webhook signatures, stores raw webhook events, parses inbound message payloads, maps them to Sender Profile, organization, lead, and conversation when possible, and stores inbound messages in both `SentDMMessage` and `communications.Message`.
+
+STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT are handled before any future AI processing. The matched lead is permanently opted out, AI is disabled, active conversations are closed, and pending follow-up reminders are suppressed. HELP sends the organization's configured help response through Sent.dm.
+
+Celery/Redis async processing is now wired for inbound Sent.dm webhooks. The request path verifies/stores the webhook and queues `process_sentdm_webhook_event_task`; STOP/HELP processing and AI reply generation happen in the worker. Normal inbound messages are mirrored into the CRM conversation, passed to the existing AI service, sent back through the matched Sent.dm Sender Profile, and stored as outbound `SentDMMessage` plus `communications.Message`. HOT AI stages disable lead/conversation AI for handoff. Next AI work is compliance-focused prompt hardening; see `.codex/REMAINING_WORK.md` for the live checklist. Production migration note: `FollowUpReminder.id` intentionally remains UUID to match existing deployed database history.

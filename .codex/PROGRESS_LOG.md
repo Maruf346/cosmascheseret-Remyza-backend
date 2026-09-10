@@ -347,3 +347,77 @@ Validation run:
 - Added `.codex/REMAINING_WORK.md` as the live TODO checklist for finishing Chesera's Sent.dm migration and production rollout.
 - Organized remaining work into production Sent.dm validation, webhook setup, async processing, inbound routing, CRM/conversation mapping, STOP/HELP compliance, AI replies, outbound send rules, activation status sync, frontend/mobile integration, deployment hardening, and final handoff cleanup.
 - Updated `.codex/PROJECT_CONTEXT.md` to point future work toward `.codex/REMAINING_WORK.md` as the source of truth for unfinished implementation items.
+
+## 2026-09-08 - Sent.dm Webhook Secret Format and Admin Static Fix
+
+- Updated Sent.dm webhook signature verification to match Sent's documented production format: `whsec_` signing secret, `x-webhook-signature` value formatted as `v1,{base64_signature}`, signed over `{webhook_id}.{timestamp}.{raw_body}`, and 5-minute timestamp tolerance.
+- Updated webhook signature tests to generate the Sent-style base64 HMAC signature.
+- Updated `nginx/nginx.conf` for the final `api.trychesera.com` HTTPS config and removed the `/static/` alias that pointed Nginx at container-only `/app/staticfiles`.
+- Kept Django admin/static serving through WhiteNoise inside the backend container; this fixes the production admin CSS issue when static files are not host-mounted.
+- Updated `.codex/DEPLOYMENT.md` and `.codex/REMAINING_WORK.md` with the current static-file deployment guidance and the future payload-derived webhook idempotency note.
+
+## 2026-09-09 - Sent.dm Inbound STOP/HELP Processing
+
+- Added permanent lead opt-out fields: `is_opted_out`, `opted_out_at`, `opt_out_keyword`, and `opt_out_source`.
+- Added CRM admin visibility for opt-out status and opt-out timestamp.
+- Added `process_sentdm_webhook_event(event)` as the first webhook processing service boundary.
+- Sent.dm inbound webhooks now parse Sender Profile ID, message ID, channel, sender/recipient numbers, and text from flexible Sent-style payload shapes.
+- Inbound webhooks now match the Sender Profile to the organization/agent, create/update leads and active conversations, store `SentDMMessage`, and mirror messages into `communications.Message`.
+- STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT are handled before any future AI processing: the lead is permanently opted out, AI is disabled, active conversations are closed, and pending follow-up reminders are marked sent so they do not fire.
+- HELP now sends the organization's configured Sent.dm help response through the same Sender Profile.
+- Follow-up reminder task now excludes opted-out leads.
+- Added regression tests for STOP opt-out, conversation closure, reminder suppression, inbound message storage, HELP autoresponse, and preserving opt-out state if the Sent.dm confirmation send fails.
+- Generated and applied `crm/migrations/0004_lead_is_opted_out_lead_opt_out_keyword_and_more.py`; this also resolves the previous CRM migration drift around `FollowUpReminder.id`.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q crm sentdm core`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test sentdm`
+  - `.venv\Scripts\python.exe manage.py migrate crm`
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm`
+
+## 2026-09-10 - Production CRM Migration and Staticfiles Warning Fix
+
+- AWS deployment failed because `crm.0004_lead_is_opted_out_lead_opt_out_keyword_and_more` tried to alter `crm_followup_reminders.id` from UUID to bigint on PostgreSQL.
+- Patched the migration to only add the new lead opt-out fields and avoid the unsafe UUID-to-bigint cast.
+- Updated `FollowUpReminder.id` in the model to explicitly remain a UUID primary key, matching the existing production migration history from `crm.0002`.
+- Updated `STATICFILES_DIRS` so `/app/static` is only included when the directory exists, removing the production `staticfiles.W004` warning after the old static/public folder cleanup.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe -m compileall -q crm sentdm core`
+  - `.venv\Scripts\python.exe manage.py test sentdm`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm`
+
+## 2026-09-10 - Celery Async Sent.dm Webhook Foundation
+
+- Added Celery/Redis dependencies to `requirements.txt` and installed them in the local venv for verification.
+- Added `cheshara_config/celery.py` and exposed `celery_app` from `cheshara_config.__init__` for task autodiscovery.
+- Added Celery settings for broker/result backend, JSON serialization, eager test mode, and `SENTDM_WEBHOOK_ASYNC_ENABLED`.
+- Added `sentdm/tasks.py` with `process_sentdm_webhook_event_task(event_id)` on the dedicated `sentdm` queue.
+- Changed the inbound Sent.dm webhook endpoint to verify/store the event, enqueue processing, refresh the event, and return 200 without running STOP/HELP/AI work in the request path.
+- Added enqueue fallback behavior for disabled/eager async mode and failure tracking when queue submission fails.
+- Updated Docker Compose production/local configs with Redis and a Celery worker service.
+- Updated `entrypoint.sh` so worker commands can reuse the backend image without running Gunicorn.
+- Added tests for webhook queueing and already-processed task skipping.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q cheshara_config sentdm core crm`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test sentdm` (22 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm` (33 tests)
+
+## 2026-09-10 - Sent.dm Webhook AI Reply Integration
+
+- Added Sent.dm inbound AI reply handling in the background webhook processor after STOP/HELP checks.
+- Normal inbound messages now create/update lead and conversation history, call the existing AI reply service, send the AI response through the matched Sent.dm Sender Profile, and store the outbound response in both `SentDMMessage` and `communications.Message`.
+- Added opt-out and AI-disabled guards so opted-out leads or disabled conversations do not trigger OpenAI/Sent.dm outbound sends.
+- HOT AI stages now mark the lead hot, disable lead/conversation AI, and set `handed_over_at` for human takeover.
+- Fixed the existing AI history direction check so lowercase `inbound` messages are treated as user messages.
+- Made `ai.ai_service` import safely when the OpenAI SDK is not installed locally; it keeps the existing fallback reply behavior.
+- Added regression tests for normal AI replies, opted-out lead suppression, and HOT lead handoff behavior.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q ai sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm` (25 tests)
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm` (36 tests)

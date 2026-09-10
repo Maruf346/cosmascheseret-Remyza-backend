@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import time
@@ -10,13 +11,18 @@ from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from accounts.models import User
-from business.models import Organization
+from business.models import Organization, PhoneNumber
+from communications.choices import ConversationStatus
+from crm.choices import LeadStage
+from communications.models import Conversation, Message
+from crm.models import FollowUpReminder, Lead
 from subscription.models import UserSubscription
 
-from .client import SentDMClient
-from .models import SentDMProfile
-from .services import build_10dlc_campaign_payload, build_profile_payload, normalize_message_status, normalize_profile_status, verify_webhook_signature
-from .views import SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
+from .client import SentDMClient, SentDMClientError
+from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
+from .services import build_10dlc_campaign_payload, build_profile_payload, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, verify_webhook_signature
+from .tasks import process_sentdm_webhook_event_task
+from .views import SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
 class DummyUser:
@@ -149,16 +155,17 @@ class SentDMWebhookSignatureTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
-    @override_settings(SENTDM_WEBHOOK_SECRET="secret", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
+    @override_settings(SENTDM_WEBHOOK_SECRET="whsec_c2VjcmV0", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
     def test_verify_webhook_signature_accepts_valid_signature(self):
         body = b'{"type":"message.received"}'
         timestamp = str(int(time.time()))
         webhook_id = "evt_123"
-        signature = hmac.new(
+        digest = hmac.new(
             b"secret",
             webhook_id.encode() + b"." + timestamp.encode() + b"." + body,
             hashlib.sha256,
-        ).hexdigest()
+        ).digest()
+        signature = f"v1,{base64.b64encode(digest).decode()}"
         request = self.factory.post(
             "/api/v1/sentdm/webhooks/inbound/",
             body,
@@ -170,7 +177,7 @@ class SentDMWebhookSignatureTests(SimpleTestCase):
 
         self.assertTrue(verify_webhook_signature(request))
 
-    @override_settings(SENTDM_WEBHOOK_SECRET="secret", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
+    @override_settings(SENTDM_WEBHOOK_SECRET="whsec_c2VjcmV0", SENTDM_WEBHOOK_TOLERANCE_SECONDS=300)
     def test_verify_webhook_signature_rejects_invalid_signature(self):
         request = self.factory.post(
             "/api/v1/sentdm/webhooks/inbound/",
@@ -327,3 +334,241 @@ class SentDMWhatsAppPayloadTests(SimpleTestCase):
         payload = build_profile_payload(Organization(), User())
 
         self.assertNotIn("whatsapp_business_account", payload)
+
+
+class SentDMWebhookProcessingTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create(
+            phone_number="+15550001000",
+            email="owner@example.com",
+            full_name="Owner Example",
+        )
+        self.organization = Organization.objects.create(
+            owner=self.user,
+            name="Example Realty",
+            email="team@example.com",
+            sentdm_support_email="support@example.com",
+            sentdm_opt_out_confirmation_message="Example Realty: You have been unsubscribed and will not receive more messages.",
+            sentdm_help_response_message="Example Realty: Contact support@example.com for support. Reply STOP to opt out.",
+        )
+        self.business_phone = PhoneNumber.objects.create(
+            organization=self.organization,
+            phone_number="+15559990000",
+            provider_phone_sid="sentdm-profile_test",
+            is_primary=True,
+        )
+        self.profile = SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_test",
+            name="Example Realty Profile",
+            phone_number=self.business_phone.phone_number,
+        )
+
+    def create_message_event(self, *, text, message_id="msg_in_1"):
+        return SentDMWebhookEvent.objects.create(
+            event_type="message.received",
+            profile_id=self.profile.profile_id,
+            payload={
+                "field": "message",
+                "sub_type": "message.received",
+                "payload": {
+                    "profile_id": self.profile.profile_id,
+                    "message_id": message_id,
+                    "channel": "sms",
+                    "inbound_number": "+15551112222",
+                    "outbound_number": self.business_phone.phone_number,
+                    "text": text,
+                },
+            },
+            signature_verified=True,
+        )
+
+    @patch("sentdm.services.SentDMClient")
+    def test_stop_webhook_opts_out_lead_closes_conversation_and_stops_reminders(self, mocked_client):
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_stop_confirm"}]}
+        }
+        lead = Lead.objects.create(
+            organization=self.organization,
+            business_phone=self.business_phone,
+            contact_number="+15551112222",
+        )
+        conversation = Conversation.objects.create(
+            organization=self.organization,
+            lead=lead,
+            status=ConversationStatus.ACTIVE,
+            ai_enabled=True,
+        )
+        reminder = FollowUpReminder.objects.create(
+            organization=self.organization,
+            lead=lead,
+            scheduled_time=timezone.now(),
+        )
+        event = self.create_message_event(text="STOP", message_id="msg_stop_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        lead.refresh_from_db()
+        conversation.refresh_from_db()
+        reminder.refresh_from_db()
+        event.refresh_from_db()
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "opt_out")
+        self.assertTrue(lead.is_opted_out)
+        self.assertFalse(lead.ai_enabled)
+        self.assertEqual(lead.opt_out_keyword, "STOP")
+        self.assertEqual(conversation.status, ConversationStatus.CLOSED)
+        self.assertFalse(conversation.ai_enabled)
+        self.assertTrue(reminder.is_sent)
+        self.assertEqual(event.status, "processed")
+        self.assertTrue(Message.objects.filter(provider_message_sid="msg_stop_in").exists())
+        self.assertTrue(Message.objects.filter(provider_message_sid="msg_stop_confirm").exists())
+        mocked_client.return_value.send_message.assert_called_once()
+
+    @patch("sentdm.services.SentDMClient")
+    def test_stop_opt_out_persists_when_confirmation_send_fails(self, mocked_client):
+        mocked_client.return_value.send_message.side_effect = SentDMClientError("provider unavailable")
+        event = self.create_message_event(text="STOP", message_id="msg_stop_send_failed")
+
+        result = process_sentdm_webhook_event(event)
+
+        lead = Lead.objects.get(organization=self.organization, contact_number="+15551112222")
+        event.refresh_from_db()
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "opt_out")
+        self.assertTrue(lead.is_opted_out)
+        self.assertFalse(lead.ai_enabled)
+        self.assertEqual(event.status, "processed")
+    @patch("sentdm.services.SentDMClient")
+    def test_help_webhook_sends_help_response_without_opting_out(self, mocked_client):
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_help_reply"}]}
+        }
+        event = self.create_message_event(text="HELP", message_id="msg_help_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        lead = Lead.objects.get(organization=self.organization, contact_number="+15551112222")
+        event.refresh_from_db()
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "help")
+        self.assertFalse(lead.is_opted_out)
+        self.assertTrue(lead.ai_enabled)
+        self.assertEqual(event.status, "processed")
+        self.assertTrue(Message.objects.filter(provider_message_sid="msg_help_in").exists())
+        self.assertTrue(Message.objects.filter(provider_message_sid="msg_help_reply").exists())
+        mocked_client.return_value.send_message.assert_called_once()
+
+    @patch("sentdm.services.SentDMClient")
+    @patch("sentdm.services.AIService")
+    def test_regular_inbound_webhook_sends_ai_reply(self, mocked_ai_service, mocked_client):
+        mocked_ai_service.return_value.generate_reply_and_stage.return_value = {
+            "reply": "Hi there, thanks for reaching out. Reply STOP to opt out.",
+            "stage": "WARM",
+        }
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_ai_reply"}]}
+        }
+        event = self.create_message_event(text="I need help buying a home", message_id="msg_ai_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        lead = Lead.objects.get(organization=self.organization, contact_number="+15551112222")
+        conversation = Conversation.objects.get(organization=self.organization, lead=lead)
+        outbound_message = Message.objects.get(provider_message_sid="msg_ai_reply")
+        event.refresh_from_db()
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "ai_reply_sent")
+        self.assertEqual(lead.stage, LeadStage.QUALIFIED)
+        self.assertTrue(lead.ai_enabled)
+        self.assertTrue(conversation.ai_enabled)
+        self.assertTrue(outbound_message.is_ai_generated)
+        self.assertEqual(outbound_message.content, "Hi there, thanks for reaching out. Reply STOP to opt out.")
+        self.assertTrue(SentDMMessage.objects.filter(sent_message_id="msg_ai_reply", lead=lead).exists())
+        self.assertEqual(event.status, "processed")
+        mocked_client.return_value.send_message.assert_called_once()
+        self.assertEqual(mocked_client.return_value.send_message.call_args.kwargs["channel"], "sms")
+
+    @patch("sentdm.services.SentDMClient")
+    @patch("sentdm.services.AIService")
+    def test_opted_out_lead_does_not_trigger_ai_reply(self, mocked_ai_service, mocked_client):
+        Lead.objects.create(
+            organization=self.organization,
+            business_phone=self.business_phone,
+            contact_number="+15551112222",
+            is_opted_out=True,
+            ai_enabled=False,
+        )
+        event = self.create_message_event(text="Hello again", message_id="msg_opted_out_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "lead_opted_out")
+        self.assertEqual(result["ai"]["reason"], "lead_opted_out")
+        mocked_ai_service.assert_not_called()
+        mocked_client.return_value.send_message.assert_not_called()
+
+    @patch("sentdm.services.SentDMClient")
+    @patch("sentdm.services.AIService")
+    def test_hot_ai_reply_disables_ai_for_handoff(self, mocked_ai_service, mocked_client):
+        mocked_ai_service.return_value.generate_reply_and_stage.return_value = {
+            "reply": "I will have the agent follow up with you. Reply STOP to opt out.",
+            "stage": "HOT",
+        }
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_hot_reply"}]}
+        }
+        event = self.create_message_event(text="I am ready to book", message_id="msg_hot_in")
+
+        result = process_sentdm_webhook_event(event)
+
+        lead = Lead.objects.get(organization=self.organization, contact_number="+15551112222")
+        conversation = Conversation.objects.get(organization=self.organization, lead=lead)
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "ai_reply_sent")
+        self.assertEqual(lead.stage, LeadStage.HOT)
+        self.assertFalse(lead.ai_enabled)
+        self.assertIsNotNone(lead.handed_over_at)
+        self.assertFalse(conversation.ai_enabled)
+class SentDMWebhookAsyncQueueTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    @override_settings(DEBUG=True, SENTDM_WEBHOOK_ASYNC_ENABLED=True)
+    @patch("sentdm.views.enqueue_sentdm_webhook_event")
+    def test_inbound_webhook_stores_event_and_queues_processing(self, mocked_enqueue):
+        mocked_enqueue.return_value = {"queued": True, "task_id": "task-123", "processed_inline": False}
+        request = self.factory.post(
+            "/api/v1/sentdm/webhooks/inbound/",
+            b'{"type":"message.received","payload":{"profile_id":"profile_test","text":"hello"}}',
+            content_type="application/json",
+            HTTP_X_WEBHOOK_ID="webhook-endpoint-id",
+            HTTP_X_WEBHOOK_EVENT_TYPE="message.received",
+        )
+
+        response = SentDMInboundWebhookAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["processing"]["queued"])
+        event = SentDMWebhookEvent.objects.get()
+        self.assertEqual(event.status, "received")
+        mocked_enqueue.assert_called_once_with(event)
+
+    def test_process_task_skips_already_processed_event(self):
+        event = SentDMWebhookEvent.objects.create(
+            event_type="message.received",
+            status="processed",
+            payload={"type": "message.received"},
+        )
+
+        result = process_sentdm_webhook_event_task(event.id)
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "already_processed")
