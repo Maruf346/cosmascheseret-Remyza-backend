@@ -1,4 +1,11 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: cheshara_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
   backend:
     build:
       context: .
@@ -24,5 +31,22 @@ services:
     env_file:
       - .env
 
+    depends_on:
+      - redis
+
     restart: always
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cheshara_worker
+    command: celery -A cheshara_config worker --loglevel=info --queues=sentdm,celery
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - backend
+    restart: always

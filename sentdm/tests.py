@@ -20,7 +20,8 @@ from subscription.models import UserSubscription
 from .client import SentDMClient, SentDMClientError
 from .models import SentDMProfile, SentDMWebhookEvent
 from .services import build_10dlc_campaign_payload, build_profile_payload, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, verify_webhook_signature
-from .views import SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
+from .tasks import process_sentdm_webhook_event_task
+from .views import SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
 class DummyUser:
@@ -460,3 +461,39 @@ class SentDMWebhookProcessingTests(TestCase):
         self.assertTrue(Message.objects.filter(provider_message_sid="msg_help_in").exists())
         self.assertTrue(Message.objects.filter(provider_message_sid="msg_help_reply").exists())
         mocked_client.return_value.send_message.assert_called_once()
+
+class SentDMWebhookAsyncQueueTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    @override_settings(DEBUG=True, SENTDM_WEBHOOK_ASYNC_ENABLED=True)
+    @patch("sentdm.views.enqueue_sentdm_webhook_event")
+    def test_inbound_webhook_stores_event_and_queues_processing(self, mocked_enqueue):
+        mocked_enqueue.return_value = {"queued": True, "task_id": "task-123", "processed_inline": False}
+        request = self.factory.post(
+            "/api/v1/sentdm/webhooks/inbound/",
+            b'{"type":"message.received","payload":{"profile_id":"profile_test","text":"hello"}}',
+            content_type="application/json",
+            HTTP_X_WEBHOOK_ID="webhook-endpoint-id",
+            HTTP_X_WEBHOOK_EVENT_TYPE="message.received",
+        )
+
+        response = SentDMInboundWebhookAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["processing"]["queued"])
+        event = SentDMWebhookEvent.objects.get()
+        self.assertEqual(event.status, "received")
+        mocked_enqueue.assert_called_once_with(event)
+
+    def test_process_task_skips_already_processed_event(self):
+        event = SentDMWebhookEvent.objects.create(
+            event_type="message.received",
+            status="processed",
+            payload={"type": "message.received"},
+        )
+
+        result = process_sentdm_webhook_event_task(event.id)
+
+        self.assertTrue(result["processed"])
+        self.assertEqual(result["action"], "already_processed")

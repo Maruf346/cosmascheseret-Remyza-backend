@@ -388,3 +388,21 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test sentdm`
   - `.venv\Scripts\python.exe manage.py check`
   - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm`
+
+## 2026-09-10 - Celery Async Sent.dm Webhook Foundation
+
+- Added Celery/Redis dependencies to `requirements.txt` and installed them in the local venv for verification.
+- Added `cheshara_config/celery.py` and exposed `celery_app` from `cheshara_config.__init__` for task autodiscovery.
+- Added Celery settings for broker/result backend, JSON serialization, eager test mode, and `SENTDM_WEBHOOK_ASYNC_ENABLED`.
+- Added `sentdm/tasks.py` with `process_sentdm_webhook_event_task(event_id)` on the dedicated `sentdm` queue.
+- Changed the inbound Sent.dm webhook endpoint to verify/store the event, enqueue processing, refresh the event, and return 200 without running STOP/HELP/AI work in the request path.
+- Added enqueue fallback behavior for disabled/eager async mode and failure tracking when queue submission fails.
+- Updated Docker Compose production/local configs with Redis and a Celery worker service.
+- Updated `entrypoint.sh` so worker commands can reuse the backend image without running Gunicorn.
+- Added tests for webhook queueing and already-processed task skipping.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q cheshara_config sentdm core crm`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test sentdm` (22 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm` (33 tests)

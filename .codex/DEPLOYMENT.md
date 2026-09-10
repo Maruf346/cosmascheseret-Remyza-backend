@@ -8,11 +8,11 @@
 ## Table of Contents
 
 1. [Architecture Overview](#1-architecture-overview)
-2. [AWS IAM — Create Deployment User](#2-aws-iam--create-deployment-user)
-3. [AWS ECR — Container Registry](#3-aws-ecr--container-registry)
-4. [AWS RDS — PostgreSQL Database](#4-aws-rds--postgresql-database)
-5. [AWS S3 — Media Storage](#5-aws-s3--media-storage)
-6. [AWS EC2 — Server Setup](#6-aws-ec2--server-setup)
+2. [AWS IAM - Create Deployment User](#2-aws-iam--create-deployment-user)
+3. [AWS ECR - Container Registry](#3-aws-ecr--container-registry)
+4. [AWS RDS - PostgreSQL Database](#4-aws-rds--postgresql-database)
+5. [AWS S3 - Media Storage](#5-aws-s3--media-storage)
+6. [AWS EC2 - Server Setup](#6-aws-ec2--server-setup)
 7. [GitHub Secrets & Variables](#7-github-secrets--variables)
 8. [First-time EC2 App Bootstrap](#8-first-time-ec2-app-bootstrap)
 9. [Nginx Setup on EC2](#9-nginx-setup-on-ec2)
@@ -39,15 +39,17 @@ GitHub Actions (CI/CD)
         |
         v
 EC2 Instance
-  Nginx (80/443)  -->  Gunicorn :8005 (Docker container)
+  Nginx (80/443)  -->  Gunicorn :8005 (backend container)
                           |
                     RDS PostgreSQL
                     S3 (media files)
+                    Redis (compose service)
+                    Celery worker (compose service for Sent.dm webhooks)
 ```
 
 ---
 
-## 2. AWS IAM — Create Deployment User
+## 2. AWS IAM - Create Deployment User
 
 This user is used **only** for CI/CD (GitHub Actions). It needs ECR push access.
 
@@ -60,7 +62,7 @@ This user is used **only** for CI/CD (GitHub Actions). It needs ECR push access.
 5. **Set permissions** ? choose **Attach policies directly**
 6. Search and attach these policies:
    - `AmazonEC2ContainerRegistryPowerUser` ? for ECR push
-   - *(Do NOT add S3 or RDS here — those are managed by the EC2 instance role)*
+   - *(Do NOT add S3 or RDS here - those are managed by the EC2 instance role)*
 7. Click **Next** ? **Create user**
 8. Click on the user ? **Security credentials** tab
 9. Scroll to **Access keys** ? **Create access key**
@@ -83,7 +85,7 @@ This user is used **only** for CI/CD (GitHub Actions). It needs ECR push access.
 
 ---
 
-## 3. AWS ECR — Container Registry
+## 3. AWS ECR - Container Registry
 
 ECR stores your Docker images privately.
 
@@ -97,16 +99,16 @@ ECR stores your Docker images privately.
    - **Image tag mutability**: Mutable
    - **Scan on push**: Enable ?
 4. Click **Create repository**
-5. Copy the **URI** — it looks like:
+5. Copy the **URI** - it looks like:
    `123456789012.dkr.ecr.us-east-1.amazonaws.com/remyza-backend`
    - The part before `/remyza-backend` is your **ECR Registry**
    - `remyza-backend` is your **ECR Repository name**
 
-> Save these — they go into GitHub vars `ECR_REPOSITORY` and secret `ECR_REGISTRY`
+> Save these - they go into GitHub vars `ECR_REPOSITORY` and secret `ECR_REGISTRY`
 
 ---
 
-## 4. AWS RDS — PostgreSQL Database
+## 4. AWS RDS - PostgreSQL Database
 
 ### Steps (AWS Console ? RDS)
 
@@ -141,7 +143,7 @@ ECR stores your Docker images privately.
 
 ---
 
-## 5. AWS S3 — Media Storage
+## 5. AWS S3 - Media Storage
 
 ### Create Bucket
 
@@ -190,7 +192,7 @@ Go to **Permissions** ? **Bucket policy** ? paste (replace `ACCOUNT_ID` and buck
 
 ---
 
-## 6. AWS EC2 — Server Setup
+## 6. AWS EC2 - Server Setup
 
 ### Launch Instance
 
@@ -255,7 +257,7 @@ sudo apt-get install certbot python3-certbot-nginx -y
 
 Go to your GitHub repo ? **Settings** ? **Secrets and variables** ? **Actions**
 
-### Secrets (sensitive — encrypted)
+### Secrets (sensitive - encrypted)
 
 | Secret Name             | Value                                                   |
 |-------------------------|---------------------------------------------------------|
@@ -268,7 +270,7 @@ Go to your GitHub repo ? **Settings** ? **Secrets and variables** ? **Actions**
 
 > For `EC2_SSH_KEY`: open your `.pem` file in a text editor, select ALL text including `-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`, and paste into the secret value.
 
-### Variables (non-sensitive — visible in logs)
+### Variables (non-sensitive - visible in logs)
 
 Go to **Variables** tab (next to Secrets):
 
@@ -308,7 +310,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 # Verify
 docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.prod.yml logs -f backend
+docker compose -f docker-compose.prod.yml logs -f worker
 ```
 
 ---
@@ -421,7 +424,7 @@ docker compose -f ~/app/docker-compose.prod.yml restart backend
 **Prerequisite**: Your domain DNS must point to EC2 public IP first (see Step 13).
 
 ```bash
-# On EC2 — get certificate
+# On EC2 - get certificate
 sudo certbot --nginx -d api.trychesera.com
 
 # Certbot will:
@@ -474,6 +477,7 @@ GitHub Actions: deploy.yml
     - aws ecr get-login-password | docker login
     - docker pull latest image
     - docker compose -f docker-compose.prod.yml up -d
+    - docker compose starts/updates backend, Redis, and worker services
     - docker image prune -f
 ```
 
@@ -511,7 +515,7 @@ Add an **A record**:
 - Points to: Your EC2 public IP
 - TTL: 300
 
-> DNS changes take 5–30 min to propagate globally.
+> DNS changes take 5Ã¢â‚¬â€œ30 min to propagate globally.
 
 ---
 
@@ -524,7 +528,13 @@ docker compose -f ~/app/docker-compose.prod.yml ps
 # View backend logs (live)
 docker compose -f ~/app/docker-compose.prod.yml logs -f backend
 
-# View last 100 lines
+# View Celery worker logs (live)
+docker compose -f ~/app/docker-compose.prod.yml logs -f worker
+
+# View Redis logs (live)
+docker compose -f ~/app/docker-compose.prod.yml logs -f redis
+
+# View last 100 backend lines
 docker compose -f ~/app/docker-compose.prod.yml logs --tail=100 backend
 
 # View nginx logs
@@ -558,7 +568,8 @@ free -h
 | GitHub Actions `SSH connection failed` | Check `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`. Make sure port 22 is open in EC2 security group from GitHub Actions IPs |
 | `collectstatic` fails in Docker build | Make sure `DJANGO_SETTINGS_MODULE` is set and all env vars needed at import time have defaults |
 | Django admin loads without CSS | Make sure Nginx does not alias `/static/` to container-only `/app/staticfiles`; let requests proxy to Django/WhiteNoise or mount static files on the host |
-| Container keeps restarting | Run `docker logs cheshara_backend` to see the crash reason |
+| Container keeps restarting | Run `docker logs cheshara_backend` or `docker compose -f ~/app/docker-compose.prod.yml logs --tail=100 backend` to see the crash reason |
+| Sent.dm webhooks are received but not processed | Check Redis and worker are running with `docker compose -f ~/app/docker-compose.prod.yml ps`; then inspect `worker` logs |
 
 ---
 
@@ -567,12 +578,12 @@ free -h
 | File | Purpose |
 |------|---------|
 | `Dockerfile.prod` | Production Docker image (Python 3.12-slim, non-root user) |
-| `entrypoint.sh` | Runs migrations then starts Gunicorn |
-| `docker-compose.prod.yml` | Production compose (no local DB — uses RDS) |
+| `entrypoint.sh` | Runs migrations then starts Gunicorn for backend; allows command override for worker service |
+| `docker-compose.prod.yml` | Production compose. Runs backend, Redis broker, and Celery worker. PostgreSQL and S3 are AWS-managed. |
 | `.dockerignore` | Keeps image lean |
 | `nginx/nginx.conf` | Nginx reverse proxy for `api.trychesera.com` with HTTPS enabled. Static files are proxied to Django/WhiteNoise unless a host-mounted static directory is added later. |
 | `.github/workflows/deploy.yml` | GitHub Actions CI/CD pipeline |
 | `.env.production.example` | Template for production .env (never commit real .env) |
 | `cheshara_config/settings.py` | Updated: PostgreSQL, S3 storage, env-based email |
-| `requirements.txt` | Added: gunicorn, psycopg2-binary, django-storages, boto3 |
+| `requirements.txt` | Added production/runtime dependencies: gunicorn, psycopg2-binary, django-storages, boto3, Celery, Redis client |
 | `.codex/DEPLOYMENT.md` | This guide |

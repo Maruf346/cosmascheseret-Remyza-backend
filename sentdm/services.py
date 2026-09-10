@@ -742,6 +742,23 @@ def process_sentdm_webhook_event(event):
         event.error_message = str(exc)
         event.save(update_fields=["status", "error_message", "updated_at"])
         return {"processed": False, "action": "failed", "error": str(exc)}
+
+def enqueue_sentdm_webhook_event(event):
+    if not getattr(settings, "SENTDM_WEBHOOK_ASYNC_ENABLED", True) or getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        result = process_sentdm_webhook_event(event)
+        return {"queued": False, "processed_inline": True, "result": result}
+
+    try:
+        from .tasks import process_sentdm_webhook_event_task
+
+        async_result = process_sentdm_webhook_event_task.delay(event.pk)
+        return {"queued": True, "task_id": async_result.id, "processed_inline": False}
+    except Exception as exc:
+        event.status = SentDMWebhookEventStatus.FAILED
+        event.error_message = f"Failed to enqueue webhook event: {exc}"
+        event.save(update_fields=["status", "error_message", "updated_at"])
+        return {"queued": False, "processed_inline": False, "error": str(exc)}
+
 def verify_webhook_signature(request):
     secret = getattr(settings, "SENTDM_WEBHOOK_SECRET", "")
     if not secret:

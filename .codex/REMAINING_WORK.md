@@ -41,18 +41,18 @@ https://api.trychesera.com/api/v1/sentdm/webhooks/inbound/
 
 ## 3. ASYNC WEBHOOK PROCESSING
 
-- [ ] Decide production async worker approach: Celery/Redis or existing project task runner.
-- [ ] Add webhook flow:
+- [x] Decide production async worker approach: Celery + Redis.
+- [x] Add webhook flow:
 
 ```text
 verify signature -> store event -> enqueue processing -> return 200 immediately
 ```
 
-- [ ] Add idempotency/deduplication using a payload-derived key, not `X-Webhook-ID` because Sent documents that header as the webhook configuration ID.
-- [ ] Add retry-safe processing status on webhook events.
-- [ ] Add error logging for failed background processing.
-- [ ] Add tests for duplicate webhook events.
-- [ ] Add tests to prove webhook returns quickly without waiting for AI/OpenAI.
+- [~] Add idempotency/deduplication using a payload-derived key, not `X-Webhook-ID` because Sent documents that header as the webhook configuration ID. Task now skips already processed events; provider payload-level duplicate keys still need validation from real webhook examples.
+- [x] Add retry-safe processing status on webhook events.
+- [x] Add error logging for failed background processing.
+- [~] Add tests for duplicate webhook events. Added already-processed task skip test; add duplicate real-payload tests after capturing real event IDs.
+- [x] Add tests to prove webhook returns quickly without waiting for AI/OpenAI.
 
 ## 4. INBOUND MESSAGE ROUTING
 

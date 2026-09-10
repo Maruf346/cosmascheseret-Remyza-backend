@@ -1,6 +1,10 @@
 #!/bin/sh
 set -e
 
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+fi
+
 echo "==> Collecting static files..."
 python manage.py collectstatic --noinput
 
