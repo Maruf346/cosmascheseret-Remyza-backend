@@ -2,17 +2,48 @@ import uuid
 
 from django.db import models
 from common.models import BaseModel
-from .choices import LeadStage, LeadActivityType
+from .choices import LeadActivityType, LeadSource, LeadStage
+
+
+class Contact(BaseModel):
+    organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="contacts")
+    full_name = models.CharField(max_length=100, blank=True)
+    country_code = models.CharField(max_length=10, blank=True)
+    phone_number = models.CharField(max_length=30)
+    contact_number = models.CharField(max_length=40, db_index=True)
+    email = models.EmailField(blank=True)
+    business_name = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    source = models.CharField(max_length=50, choices=LeadSource.choices, default=LeadSource.MANUAL, db_index=True)
+    linked_lead = models.OneToOneField("crm.Lead", on_delete=models.SET_NULL, blank=True, null=True, related_name="contact_record")
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "crm_contacts"
+        ordering = ["full_name", "-created_at"]
+        indexes = [
+            models.Index(fields=["organization", "contact_number"]),
+            models.Index(fields=["source"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "contact_number"], name="unique_contact_per_organization"),
+        ]
+
+    def __str__(self):
+        return self.full_name or self.contact_number
+
 
 class Lead(BaseModel):
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="leads")
-    business_phone = models.ForeignKey("business.PhoneNumber", on_delete=models.PROTECT, related_name="leads")
+    business_phone = models.ForeignKey("business.PhoneNumber", on_delete=models.SET_NULL, blank=True, null=True, related_name="leads")
+    contact = models.OneToOneField(Contact, on_delete=models.SET_NULL, blank=True, null=True, related_name="lead_record")
     
     full_name = models.CharField(max_length=100, blank=True)
     email = models.EmailField(blank=True)
     contact_number = models.CharField(max_length=30, db_index=True)
     company = models.CharField(max_length=255, blank=True)
-    stage = models.CharField(max_length=20, choices=LeadStage.choices, default=LeadStage.NEW, db_index=True)
+    source = models.CharField(max_length=50, choices=LeadSource.choices, default=LeadSource.AUTO_CAPTURE, db_index=True)
+    stage = models.CharField(max_length=20, choices=LeadStage.choices, default=LeadStage.COLD, db_index=True)
     score = models.PositiveSmallIntegerField(default=0)
     ai_enabled = models.BooleanField(default=True)
     is_opted_out = models.BooleanField(default=False, db_index=True)
@@ -36,6 +67,7 @@ class Lead(BaseModel):
         indexes = [
             models.Index(fields=["organization", "contact_number"]),
             models.Index(fields=["stage"]),
+            models.Index(fields=["source"]),
             models.Index(fields=["score"]),
             models.Index(fields=["last_message_at"]),
         ]
@@ -88,7 +120,7 @@ class LeadTagAssignment(BaseModel):
         ]
 
     def __str__(self):
-        return f"{self.lead.contact_number} → {self.tag.name}"
+        return f"{self.lead.contact_number} -> {self.tag.name}"
 
 class FollowUpReminder(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

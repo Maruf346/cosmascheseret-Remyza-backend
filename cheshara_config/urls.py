@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 urlpatterns = [
@@ -15,4 +17,13 @@ urlpatterns = [
     path('api/v1/', include('crm.urls')),
     path('api/v1/', include('subscription.urls')),
     path('api/v1/', include('sentdm.urls')),
+    path('api/v1/', include('notifications.urls')),
+    path('api/v1/', include('supports.urls')),
+    
+    # CKEditor 5 upload
+    path('ckeditor5/', include('django_ckeditor_5.urls')),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

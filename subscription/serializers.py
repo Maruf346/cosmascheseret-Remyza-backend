@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.utils import timezone
+from notifications.services import NotificationTemplates, safe_notify
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -80,4 +81,5 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
             status="active" if validated_data.get("is_subscription_active") else "awaiting_payment",
             **validated_data,
         )
+        transaction.on_commit(lambda: safe_notify(NotificationTemplates.subscription_recorded, subscription))
         return subscription

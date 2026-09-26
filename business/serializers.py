@@ -72,7 +72,7 @@ class OrganizationSetupSerializer(serializers.ModelSerializer):
 class UpdateBusinessSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = BusinessSetting
-        fields = ("reply_tone", "auto_reply_enabled", "reply_speed", "auto_follow_up")
+        fields = ("reply_tone", "auto_reply_enabled", "reply_speed", "auto_follow_up", "auto_welcome_message_enabled")
 
     def validate_reply_speed(self, value):
         if value < 0:

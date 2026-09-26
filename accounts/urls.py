@@ -1,9 +1,11 @@
 from django.urls import path
 from .views import (
+    ClientSignupAPIView,
     ClientSendOTPAPIView,
     ClientVerifyOTPAPIView,
     AdminLoginAPIView,
     CurrentUserPlanAndProgressAPIView,
+    CurrentUserCheseraNumberAPIView,
     CustomTokenRefreshView,
     CustomTokenVerifyView,
 
@@ -13,6 +15,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("client/auth/signup/", ClientSignupAPIView.as_view(), name="client-signup"),
     path("client/auth/send-otp/", ClientSendOTPAPIView.as_view(), name="client-send-otp"),
     path("client/auth/verify-otp/", ClientVerifyOTPAPIView.as_view(), name="client-verify-otp"),
     path("admin/auth/login/", AdminLoginAPIView.as_view(), name="admin-auth-login"),
@@ -23,4 +26,5 @@ urlpatterns = [
     # Twilio-backed free-trial number claim is hidden from Swagger during Sent.dm migration.
     # path("me/claim-free-trail-number/", ClaimFreeTrailNumber.as_view(), name="claim-user-free-trail"),
     path("me/plan-and-progress/", CurrentUserPlanAndProgressAPIView.as_view(), name="user-plan-and-progress"),
+    path("me/chesera-number/", CurrentUserCheseraNumberAPIView.as_view(), name="user-chesera-number"),
 ]

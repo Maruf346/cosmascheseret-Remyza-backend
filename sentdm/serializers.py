@@ -11,10 +11,12 @@ class SentDMAccountCheckSerializer(serializers.Serializer):
 
 
 class SentDMProfileSerializer(serializers.ModelSerializer):
+    is_agent_whatsapp_active = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = SentDMProfile
         fields = "__all__"
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at", "is_agent_whatsapp_active")
 
 
 class SentDMMessageSerializer(serializers.ModelSerializer):
@@ -38,9 +40,15 @@ class SentDMProfileCreateSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_blank=True)
 
 
+class SentDMWhatsAppConnectSerializer(serializers.Serializer):
+    profile_id = serializers.CharField(required=False, allow_blank=True)
+    waba_id = serializers.CharField(max_length=100)
+    phone_number_id = serializers.CharField(max_length=100)
+    access_token = serializers.CharField(write_only=True)
+
+
 class SentDMProfileCompleteSerializer(serializers.Serializer):
     profile_id = serializers.CharField(required=False, allow_blank=True)
-
 
 
 class SentDMCampaignSerializer(serializers.ModelSerializer):
@@ -64,6 +72,7 @@ class SentDMCampaignCreateSerializer(serializers.Serializer):
     campaign_name = serializers.CharField(required=False, allow_blank=True, max_length=255)
     campaign_type = serializers.CharField(required=False, allow_blank=True, max_length=50, default="App")
 
+
 class SentDMSendSandboxMessageSerializer(serializers.Serializer):
     to = serializers.CharField(max_length=30)
     text = serializers.CharField()
@@ -75,3 +84,6 @@ class SentDMSendSandboxMessageSerializer(serializers.Serializer):
             raise serializers.ValidationError("Phone number must be in E.164 format, for example +15551234567.")
         return value
 
+
+class SentDMSendMessageSerializer(SentDMSendSandboxMessageSerializer):
+    pass

@@ -10,6 +10,8 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     email = models.EmailField(blank=True, null=True, db_index=True)
     phone_number = models.CharField(max_length=30, unique=True, db_index=True)
     full_name = models.CharField(max_length=100, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
     country_code = models.CharField(max_length=10, blank=True)
     profile_picture = models.ImageField(upload_to="users/profile/", blank=True, null=True)
     user_type = models.CharField(max_length=20, choices=UserType.choices, default=UserType.CLIENT)

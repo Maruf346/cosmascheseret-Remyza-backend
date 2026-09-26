@@ -1,8 +1,20 @@
 from django.contrib import admin
 
 from .models import (
-    Lead, LeadActivity, LeadTag, LeadTagAssignment,
+    Contact, Lead, LeadActivity, LeadTag, LeadTagAssignment,
 )
+
+
+@admin.register(Contact)
+class ContactAdmin(admin.ModelAdmin):
+    list_display = ("id", "full_name", "contact_number", "email", "business_name", "organization", "source", "linked_lead", "created_at")
+    list_filter = ("source", "organization", "created_at")
+    search_fields = ("full_name", "contact_number", "phone_number", "email", "business_name", "organization__name")
+    autocomplete_fields = ("organization", "linked_lead")
+    list_select_related = ("organization", "linked_lead")
+    readonly_fields = ("contact_number", "created_at", "updated_at")
+    ordering = ("full_name", "-created_at")
+    list_per_page = 25
 
 
 class LeadActivityInline(admin.TabularInline):
@@ -20,11 +32,11 @@ class LeadTagAssignmentInline(admin.TabularInline):
 
 @admin.register(Lead)
 class LeadAdmin(admin.ModelAdmin):
-    list_display = ("id", "full_name", "contact_number", "organization", "business_phone", "stage", "score", "ai_enabled", "is_opted_out", "last_message_at", "created_at")
-    list_filter = ("stage", "ai_enabled", "is_opted_out", "organization", "created_at")
+    list_display = ("id", "full_name", "contact_number", "organization", "business_phone", "contact", "source", "stage", "score", "ai_enabled", "is_opted_out", "last_message_at", "created_at")
+    list_filter = ("stage", "source", "ai_enabled", "is_opted_out", "organization", "created_at")
     search_fields = ("full_name", "contact_number", "email", "company", "organization__name")
-    autocomplete_fields = ("organization", "business_phone")
-    list_select_related = ("organization", "business_phone")
+    autocomplete_fields = ("organization", "business_phone", "contact")
+    list_select_related = ("organization", "business_phone", "contact")
     readonly_fields = ("handed_over_at", "last_message_at", "last_incoming_at", "last_outgoing_at", "last_ai_reply_at", "opted_out_at", "created_at", "updated_at")
     ordering = ("-last_message_at",)
     date_hierarchy = "created_at"
@@ -68,6 +80,3 @@ class LeadTagAssignmentAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     date_hierarchy = "created_at"
     list_per_page = 25
-
-
-

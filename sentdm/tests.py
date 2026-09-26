@@ -3,11 +3,13 @@ import hashlib
 import hmac
 import time
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from datetime import timedelta
 
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from accounts.models import User
@@ -15,14 +17,15 @@ from business.models import Organization, PhoneNumber
 from communications.choices import ConversationStatus
 from crm.choices import LeadStage
 from communications.models import Conversation, Message
-from crm.models import FollowUpReminder, Lead
+from crm.models import Contact, FollowUpReminder, Lead
 from subscription.models import UserSubscription
 
+from .choices import SentDMChannel, SentDMWhatsAppConnectionSource, SentDMWhatsAppConnectionStatus
 from .client import SentDMClient, SentDMClientError
 from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
-from .services import build_10dlc_campaign_payload, build_profile_payload, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, verify_webhook_signature
+from .services import build_10dlc_campaign_payload, build_profile_payload, FOLLOW_UP_MESSAGE_PURPOSE, lead_has_active_whatsapp_window, connect_agent_whatsapp_for_user, get_sentdm_profile_creation_readiness, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, resolve_outbound_channel, send_live_message, upsert_profile_from_response, verify_webhook_signature
 from .tasks import process_sentdm_webhook_event_task
-from .views import SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
+from .views import SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMWhatsAppConnectAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
 class DummyUser:
@@ -47,6 +50,39 @@ class SentDMClientSandboxTests(SimpleTestCase):
 
         self.assertEqual(payload, {"text": "hello"})
 
+    @patch("sentdm.client.requests.request")
+    @override_settings(SENTDM_SANDBOX_MODE=False)
+    def test_send_message_uses_documented_free_text_payload_shape(self, mocked_request):
+        mocked_request.return_value.status_code = 202
+        mocked_request.return_value.headers = {"X-Request-Id": "req_test"}
+        mocked_request.return_value.json.return_value = {
+            "success": True,
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_test"}]},
+        }
+        client = SentDMClient(api_key="test-key", base_url="https://api.sent.dm/v3")
+
+        response = client.send_message(to="+15551234567", text="Hello", profile_id="profile_test", channel="sms")
+
+        self.assertTrue(response["success"])
+        mocked_request.assert_called_once()
+        kwargs = mocked_request.call_args.kwargs
+        self.assertEqual(kwargs["json"], {"to": ["+15551234567"], "text": "Hello", "channel": ["sms"]})
+        self.assertEqual(kwargs["headers"]["x-profile-id"], "profile_test")
+
+    @patch("sentdm.client.requests.request")
+    @override_settings(SENTDM_SANDBOX_MODE=False)
+    def test_send_message_omits_channel_for_auto_routing(self, mocked_request):
+        mocked_request.return_value.status_code = 202
+        mocked_request.return_value.headers = {}
+        mocked_request.return_value.json.return_value = {
+            "success": True,
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_auto"}]},
+        }
+        client = SentDMClient(api_key="test-key", base_url="https://api.sent.dm/v3")
+
+        client.send_message(to="+15551234567", text="Hello", channel="auto")
+
+        self.assertEqual(mocked_request.call_args.kwargs["json"], {"to": ["+15551234567"], "text": "Hello"})
     def test_build_profile_payload_uses_request_overrides(self):
         class User:
             id = 7
@@ -151,6 +187,41 @@ class SentDMPaidSubscriptionPermissionTests(SimpleTestCase):
         mocked_subscription.assert_called_once_with(self.user)
 
 
+    def test_profile_creation_readiness_warns_when_direct_whatsapp_credentials_are_missing(self):
+        class User:
+            id = 11
+            full_name = "Agent Example"
+            phone_number = "+15551234567"
+            email = "agent@example.com"
+            organization = None
+
+        class Organization:
+            sentdm_legal_name = "Example Realty LLC"
+            sentdm_support_email = "support@example.com"
+            sentdm_privacy_policy_url = "https://example.com/privacy"
+            sentdm_terms_url = "https://example.com/terms"
+            sentdm_opt_in_description = "Lead submits a form and agrees to receive replies."
+            sentdm_messaging_use_case = "Customer care replies for opted-in real estate leads."
+            sentdm_messaging_use_case_us = "CUSTOMER_CARE"
+            sentdm_sample_message_1 = "Example Realty: Thanks for reaching out. Reply STOP to opt out."
+            sentdm_sample_message_2 = ""
+            sentdm_sample_message_3 = ""
+            sentdm_opt_in_confirmation_message = "Example Realty: Thanks for opting in. Reply STOP to opt out."
+            sentdm_opt_out_confirmation_message = "Example Realty: You have been unsubscribed."
+            sentdm_help_response_message = "Example Realty: Contact support@example.com. Reply STOP to opt out."
+            sentdm_whatsapp_waba_id = ""
+            sentdm_whatsapp_phone_number_id = ""
+            sentdm_whatsapp_access_token = ""
+
+        user = User()
+        user.organization = Organization()
+
+        readiness = get_sentdm_profile_creation_readiness(user)
+
+        self.assertTrue(readiness["ready"])
+        self.assertFalse(readiness["has_direct_whatsapp_business_account"])
+        self.assertIn("organization-level WhatsApp Business Account", readiness["warnings"][0])
+
 class SentDMWebhookSignatureTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
@@ -190,6 +261,55 @@ class SentDMWebhookSignatureTests(SimpleTestCase):
 
         self.assertFalse(verify_webhook_signature(request))
 
+
+class SentDMOutboundChannelPolicyTests(SimpleTestCase):
+    def test_auto_without_agent_whatsapp_routes_to_sms(self):
+        profile = SimpleNamespace(is_agent_whatsapp_active=False)
+
+        self.assertEqual(resolve_outbound_channel(profile=None, requested_channel=SentDMChannel.AUTO), SentDMChannel.AUTO)
+        self.assertEqual(resolve_outbound_channel(profile=profile, requested_channel=SentDMChannel.AUTO), SentDMChannel.SMS)
+        self.assertEqual(resolve_outbound_channel(profile=profile, requested_channel=SentDMChannel.SMS), SentDMChannel.SMS)
+        self.assertEqual(resolve_outbound_channel(profile=profile, requested_channel=SentDMChannel.RCS), SentDMChannel.RCS)
+
+    def test_explicit_whatsapp_requires_agent_owned_active_whatsapp(self):
+        inherited_profile = SimpleNamespace(is_agent_whatsapp_active=False, whatsapp_phone_number="+15559990000")
+
+        with self.assertRaises(ValidationError):
+            resolve_outbound_channel(profile=inherited_profile, requested_channel=SentDMChannel.WHATSAPP)
+
+    def test_follow_up_whatsapp_inside_customer_service_window_can_use_direct_whatsapp(self):
+        now = timezone.now()
+        profile = SimpleNamespace(is_agent_whatsapp_active=True, whatsapp_phone_number="+15559990000")
+        lead = SimpleNamespace(last_incoming_at=now - timedelta(hours=23, minutes=59))
+
+        self.assertTrue(lead_has_active_whatsapp_window(lead, now=now))
+        self.assertEqual(
+            resolve_outbound_channel(
+                profile=profile,
+                requested_channel=SentDMChannel.WHATSAPP,
+                purpose=FOLLOW_UP_MESSAGE_PURPOSE,
+                lead=lead,
+                now=now,
+            ),
+            SentDMChannel.WHATSAPP,
+        )
+
+    def test_follow_up_whatsapp_outside_customer_service_window_routes_to_sms(self):
+        now = timezone.now()
+        profile = SimpleNamespace(is_agent_whatsapp_active=True, whatsapp_phone_number="+15559990000")
+        lead = SimpleNamespace(last_incoming_at=now - timedelta(days=3))
+
+        self.assertFalse(lead_has_active_whatsapp_window(lead, now=now))
+        self.assertEqual(
+            resolve_outbound_channel(
+                profile=profile,
+                requested_channel=SentDMChannel.WHATSAPP,
+                purpose=FOLLOW_UP_MESSAGE_PURPOSE,
+                lead=lead,
+                now=now,
+            ),
+            SentDMChannel.SMS,
+        )
 
 class SentDMStatusTests(SimpleTestCase):
     def test_normalize_profile_status_maps_completed_to_approved(self):
@@ -279,6 +399,205 @@ class SentDMProfileCreateGuardTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("whatsapp", response.data)
         mocked_client.assert_not_called()
+
+    @override_settings(SENTDM_SANDBOX_MODE=False)
+    @patch("sentdm.services.SentDMClient")
+    def test_follow_up_send_routes_whatsapp_request_to_sms_outside_24_hour_window(self, mocked_client):
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_follow_up_sms"}]}
+        }
+        profile = SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_with_whatsapp",
+            name="Profile With WhatsApp",
+            phone_number="+15559990000",
+            whatsapp_phone_number="+15558880000",
+        )
+        business_phone = PhoneNumber.objects.create(
+            organization=self.organization,
+            phone_number="+15559990000",
+            provider_phone_sid="sentdm-follow-up-test",
+            is_primary=True,
+        )
+        lead = Lead.objects.create(
+            organization=self.organization,
+            business_phone=business_phone,
+            contact_number="+15551234567",
+            last_incoming_at=timezone.now() - timedelta(days=3),
+        )
+
+        message, _ = send_live_message(
+            user=self.user,
+            to=lead.contact_number,
+            text="Following up from Example Realty. Reply STOP to opt out.",
+            profile=profile,
+            channel=SentDMChannel.WHATSAPP,
+            purpose=FOLLOW_UP_MESSAGE_PURPOSE,
+            lead=lead,
+        )
+
+        self.assertEqual(message.channel, SentDMChannel.SMS)
+        self.assertEqual(mocked_client.return_value.send_message.call_args.kwargs["channel"], SentDMChannel.SMS)
+
+class SentDMWhatsAppConnectionStateTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create(
+            phone_number="+15550002000",
+            email="whatsapp-owner@example.com",
+            full_name="WhatsApp Owner",
+        )
+        self.organization = Organization.objects.create(
+            owner=self.user,
+            name="WhatsApp Realty",
+            email="team-whatsapp@example.com",
+        )
+        UserSubscription.objects.create(
+            user=self.user,
+            organization=self.organization,
+            product_id="chesera.monthly",
+            plan_type="monthly",
+            medium="apple",
+            transaction_id="txn-whatsapp-connect",
+            is_subscription_active=True,
+            expiry_date=timezone.now() + timedelta(days=30),
+        )
+
+    def test_inherited_whatsapp_response_does_not_activate_agent_whatsapp(self):
+        profile = upsert_profile_from_response(
+            {
+                "data": {
+                    "id": "profile_inherited_whatsapp",
+                    "name": "Inherited Profile",
+                    "status": "completed",
+                    "sending_phone_number": "+15559990000",
+                    "whatsapp_phone_number": "+15558880000",
+                }
+            },
+            user=self.user,
+            organization=self.organization,
+            direct_whatsapp_requested=False,
+        )
+
+        self.assertEqual(profile.whatsapp_connection_source, SentDMWhatsAppConnectionSource.INHERITED)
+        self.assertEqual(profile.whatsapp_connection_status, SentDMWhatsAppConnectionStatus.NOT_CONNECTED)
+        self.assertEqual(profile.whatsapp_phone_number, "")
+        self.assertFalse(profile.is_agent_whatsapp_active)
+        self.assertEqual(resolve_outbound_channel(profile=profile, requested_channel=SentDMChannel.AUTO), SentDMChannel.SMS)
+
+    def test_direct_whatsapp_response_activates_agent_whatsapp(self):
+        profile = upsert_profile_from_response(
+            {
+                "data": {
+                    "id": "profile_direct_whatsapp",
+                    "name": "Direct Profile",
+                    "status": "completed",
+                    "sending_phone_number": "+15559990000",
+                    "whatsapp_phone_number": "+15558880000",
+                }
+            },
+            user=self.user,
+            organization=self.organization,
+            direct_whatsapp_requested=True,
+        )
+
+        self.assertEqual(profile.whatsapp_connection_source, SentDMWhatsAppConnectionSource.DIRECT)
+        self.assertEqual(profile.whatsapp_connection_status, SentDMWhatsAppConnectionStatus.ACTIVE)
+        self.assertEqual(profile.whatsapp_phone_number, "+15558880000")
+        self.assertTrue(profile.is_agent_whatsapp_active)
+        self.assertEqual(resolve_outbound_channel(profile=profile, requested_channel=SentDMChannel.WHATSAPP), SentDMChannel.WHATSAPP)
+
+    @patch("sentdm.services.SentDMClient")
+    def test_connect_agent_whatsapp_updates_profile_and_stores_credentials(self, mocked_client):
+        mocked_client.return_value.update_profile.return_value = {
+            "data": {
+                "id": "profile_connect_success",
+                "name": "Connect Profile",
+                "status": "completed",
+                "sending_phone_number": "+15559990000",
+                "whatsapp_phone_number": "+15558880000",
+            }
+        }
+        SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_connect_success",
+            name="Connect Profile",
+        )
+
+        profile, _ = connect_agent_whatsapp_for_user(
+            self.user,
+            {
+                "waba_id": "123456789012345",
+                "phone_number_id": "987654321098765",
+                "access_token": "EAAxxxxxxxxxxxxxxx",
+            },
+        )
+
+        self.assertTrue(profile.is_agent_whatsapp_active)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.sentdm_whatsapp_waba_id, "123456789012345")
+        self.assertEqual(mocked_client.return_value.update_profile.call_args.args[0], "profile_connect_success")
+        self.assertEqual(
+            mocked_client.return_value.update_profile.call_args.args[1]["whatsapp_business_account"]["phone_number_id"],
+            "987654321098765",
+        )
+
+    @patch("sentdm.services.SentDMClient")
+    def test_connect_agent_whatsapp_failure_marks_profile_failed(self, mocked_client):
+        mocked_client.return_value.update_profile.side_effect = SentDMClientError("Invalid WABA credentials", status_code=422)
+        profile = SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_connect_failed",
+            name="Connect Failed Profile",
+        )
+
+        with self.assertRaises(SentDMClientError):
+            connect_agent_whatsapp_for_user(
+                self.user,
+                {
+                    "waba_id": "bad-waba",
+                    "phone_number_id": "bad-phone",
+                    "access_token": "bad-token",
+                },
+            )
+
+        profile.refresh_from_db()
+        self.assertEqual(profile.whatsapp_connection_source, SentDMWhatsAppConnectionSource.DIRECT)
+        self.assertEqual(profile.whatsapp_connection_status, SentDMWhatsAppConnectionStatus.FAILED)
+        self.assertIn("Invalid WABA credentials", profile.whatsapp_connection_error)
+
+    @patch("sentdm.views.connect_agent_whatsapp_for_user")
+    def test_whatsapp_connect_endpoint_returns_updated_profile(self, mocked_connect):
+        profile = SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_endpoint_success",
+            name="Endpoint Profile",
+            whatsapp_phone_number="+15558880000",
+            whatsapp_connection_source=SentDMWhatsAppConnectionSource.DIRECT,
+            whatsapp_connection_status=SentDMWhatsAppConnectionStatus.ACTIVE,
+        )
+        mocked_connect.return_value = (profile, {"success": True, "data": {"id": profile.profile_id}})
+        request = self.factory.post(
+            "/api/v1/sentdm/profiles/whatsapp/connect/",
+            {
+                "profile_id": profile.profile_id,
+                "waba_id": "123456789012345",
+                "phone_number_id": "987654321098765",
+                "access_token": "EAAxxxxxxxxxxxxxxx",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = SentDMWhatsAppConnectAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["data"]["profile"]["is_agent_whatsapp_active"])
+        mocked_connect.assert_called_once()
 
 class SentDMWhatsAppPayloadTests(SimpleTestCase):
     def test_build_profile_payload_includes_optional_whatsapp_business_account(self):
@@ -479,18 +798,23 @@ class SentDMWebhookProcessingTests(TestCase):
 
         lead = Lead.objects.get(organization=self.organization, contact_number="+15551112222")
         conversation = Conversation.objects.get(organization=self.organization, lead=lead)
+        contact = Contact.objects.get(organization=self.organization, contact_number="+15551112222")
         outbound_message = Message.objects.get(provider_message_sid="msg_ai_reply")
         event.refresh_from_db()
 
         self.assertTrue(result["processed"])
         self.assertEqual(result["action"], "ai_reply_sent")
-        self.assertEqual(lead.stage, LeadStage.QUALIFIED)
+        self.assertEqual(lead.stage, LeadStage.WARM)
+        self.assertEqual(lead.contact, contact)
+        self.assertEqual(contact.linked_lead, lead)
         self.assertTrue(lead.ai_enabled)
         self.assertTrue(conversation.ai_enabled)
         self.assertTrue(outbound_message.is_ai_generated)
         self.assertEqual(outbound_message.content, "Hi there, thanks for reaching out. Reply STOP to opt out.")
         self.assertTrue(SentDMMessage.objects.filter(sent_message_id="msg_ai_reply", lead=lead).exists())
         self.assertEqual(event.status, "processed")
+        mocked_ai_service.return_value.generate_reply_and_stage.assert_called_once()
+        self.assertEqual(mocked_ai_service.return_value.generate_reply_and_stage.call_args.kwargs["organization"], self.organization)
         mocked_client.return_value.send_message.assert_called_once()
         self.assertEqual(mocked_client.return_value.send_message.call_args.kwargs["channel"], "sms")
 

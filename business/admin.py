@@ -62,8 +62,8 @@ class OrganizationAdmin(admin.ModelAdmin):
 
 @admin.register(BusinessSetting)
 class BusinessSettingAdmin(admin.ModelAdmin):
-    list_display = ("organization", "language", "timezone", "currency", "reply_tone", "auto_reply_enabled")
-    list_filter = ("language", "currency", "auto_reply_enabled")
+    list_display = ("organization", "language", "timezone", "currency", "reply_tone", "auto_reply_enabled", "auto_welcome_message_enabled")
+    list_filter = ("language", "currency", "auto_reply_enabled", "auto_welcome_message_enabled")
     search_fields = ("organization__name",)
     autocomplete_fields = ("organization",)
     list_select_related = ("organization",)

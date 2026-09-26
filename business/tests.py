@@ -1,8 +1,8 @@
 from django.test import TestCase
 
 from accounts.models import User
-from business.models import Organization
-from business.serializers import OrganizationSerializer
+from business.models import BusinessSetting, Organization
+from business.serializers import OrganizationSerializer, UpdateBusinessSettingSerializer
 
 
 class OrganizationWhatsAppConfigSerializerTests(TestCase):
@@ -41,3 +41,16 @@ class OrganizationWhatsAppConfigSerializerTests(TestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("sentdm_whatsapp", serializer.errors)
+
+
+class BusinessSettingSerializerTests(TestCase):
+    def test_auto_welcome_message_toggle_is_updateable(self):
+        user = User.objects.create(phone_number="+15550001003")
+        organization = Organization.objects.create(owner=user, name="Welcome Realty")
+        setting = BusinessSetting.objects.create(user=user, organization=organization)
+
+        serializer = UpdateBusinessSettingSerializer(setting, data={"auto_welcome_message_enabled": True}, partial=True)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        updated = serializer.save()
+        self.assertTrue(updated.auto_welcome_message_enabled)

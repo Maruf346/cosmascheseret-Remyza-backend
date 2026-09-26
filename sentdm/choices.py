@@ -29,6 +29,19 @@ class SentDMChannel(models.TextChoices):
     WHATSAPP = "whatsapp", "WhatsApp"
 
 
+
+class SentDMWhatsAppConnectionSource(models.TextChoices):
+    NONE = "none", "Not Connected"
+    INHERITED = "inherited", "Inherited Organization WhatsApp"
+    DIRECT = "direct", "Agent Direct WhatsApp"
+
+
+class SentDMWhatsAppConnectionStatus(models.TextChoices):
+    NOT_CONNECTED = "not_connected", "Not Connected"
+    PENDING = "pending", "Pending"
+    ACTIVE = "active", "Active"
+    FAILED = "failed", "Failed"
+
 class SentDMWebhookEventStatus(models.TextChoices):
     RECEIVED = "received", "Received"
     PROCESSED = "processed", "Processed"

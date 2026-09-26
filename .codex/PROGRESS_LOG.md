@@ -421,3 +421,241 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test sentdm` (25 tests)
   - `.venv\Scripts\python.exe manage.py check`
   - `.venv\Scripts\python.exe manage.py test accounts business crm communications subscription sentdm` (36 tests)
+
+## 2026-09-10 - AI Compliance Prompt Hardening
+
+- Reworked `AIService` to build a Sent.dm/10DLC-aware system prompt with organization context.
+- Prompt now includes business legal/name identity, support email, Sent.dm vertical, approved messaging use case, business reply tone, and optional organization AI instructions.
+- Added explicit AI rules for business identification, STOP opt-out language, no urgency/pressure wording, no ALL CAPS, no excessive punctuation, no link shorteners, and staying inside the approved use case/vertical.
+- Passed the organization into Sent.dm inbound AI reply generation so responses are grounded in the correct agent/business context.
+- Made the fallback AI response compliant by identifying the business and including STOP opt-out language.
+- Added AI prompt regression tests and tightened Sent.dm webhook tests to confirm organization context reaches the AI service.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q ai sentdm`
+  - `.venv\Scripts\python.exe manage.py test ai sentdm` (27 tests)
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (38 tests)
+
+## 2026-09-10 - Sent.dm Outbound Channel Policy
+
+- Added shared Sent.dm outbound channel policy helpers for direct sends, AI replies, and future follow-up sends.
+- `auto`, `sms`, and `rcs` can be used without WhatsApp configuration, keeping WhatsApp optional for agents.
+- Explicit `whatsapp` sends now require an active `SentDMProfile.whatsapp_phone_number` from a connected/verified WhatsApp setup.
+- Follow-up sends requested over WhatsApp now route to SMS when the lead is outside Meta's 24-hour customer-service window, using `Lead.last_incoming_at` as the window source.
+- Sent.dm send wrappers now accept `purpose` and `lead` so scheduled follow-up code can reuse the same policy when outbound follow-up messaging is implemented.
+- Added tests for channel pass-through, WhatsApp required configuration, 24-hour WhatsApp window checks, and follow-up fallback to SMS.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm` (30 tests)
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (43 tests)
+
+## 2026-09-10 - Sent.dm MCP and Docs Verification Pass
+
+- Verified the connected Sent MCP account returns organization `Chesera LLC` with id `80c15901-8bd6-407f-b623-0958c0374a98`.
+- Verified MCP shows approved default OPT_IN, OPT_OUT, and HELP templates on the organization account.
+- Checked Sent official docs for message sending, channel selection, webhooks/signatures, Sender Profiles, and WhatsApp prerequisites.
+- Confirmed our REST client sends `to` as an array, free-form `text`, and explicit channels as arrays; added tests for this payload shape.
+- Confirmed our internal `auto` channel maps to Sent automatic routing by omitting `channel` from the outbound payload.
+- Added profile creation readiness warning: if direct WABA credentials are missing, Sent may require the profile to inherit an already configured organization-level WhatsApp Business Account, otherwise profile creation can be rejected.
+- Added a clearer Sender Profile creation error hint when Sent rejects a request without direct WABA credentials.
+- Remaining caveat: MCP did not expose profile creation, webhook creation/status, 10DLC submission, channel configuration status, or actual live REST send verification. Those still require controlled REST/dashboard validation.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm` (33 tests)
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (46 tests)
+
+## 2026-09-10 - Optional Agent-Owned WhatsApp Activation State
+
+- Added explicit Sent.dm WhatsApp connection state on `SentDMProfile`: source (`none`, `inherited`, `direct`), status (`not_connected`, `pending`, `active`, `failed`), provider error, connected timestamp, and sync timestamp.
+- Preserved the approved architecture: Sender Profile creation can tolerate an inherited organization-level WABA if Sent.dm requires one, but Chesera does not consider inherited WhatsApp active for the agent.
+- Added `/api/v1/sentdm/profiles/whatsapp/connect/` so paid agents can later submit their own Meta WABA ID, phone number ID, and access token after Sender Profile creation.
+- On successful direct WABA acceptance, the profile becomes agent-WhatsApp active. On Sent.dm/Meta rejection, the profile is marked failed and the API returns a clear credential/ownership/permission hint.
+- Updated outbound channel policy so profile-bound `auto` resolves to SMS when direct agent WhatsApp is not active, preventing accidental sends through inherited organization WhatsApp.
+- Updated serializers so profile responses expose `is_agent_whatsapp_active` for frontend gating.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py test sentdm` (38 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (51 tests)
+
+## 2026-09-10 - Plan Progress Activation Status Sync
+
+- Updated `/api/v1/me/plan-and-progress/` to return a fuller Sent.dm activation snapshot while preserving existing subscription, organization, profile, campaign, and progress response keys.
+- Added `sentdm_number`, `whatsapp`, and `messaging_activation` response sections for dashboard/mobile display.
+- The endpoint now reports subscription-required, business-profile-required, compliance-required, Sender Profile required, campaign required, activation-in-progress, active, and needs-attention states.
+- Added dashboard-ready activation messages, including `Messaging activation in progress, usually 1-3 business days.`, `Messaging active.`, and `Messaging activation needs attention.`
+- WhatsApp remains optional in the progress response: inherited organization WhatsApp is shown as not connected for the agent, while direct agent-owned WhatsApp can show pending, active, or failed.
+- Added endpoint regression tests for free/dashboard-only users and paid users with active SMS/RCS plus optional WhatsApp not connected.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q accounts`
+  - `.venv\Scripts\python.exe manage.py test accounts` (3 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (53 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+
+## 2026-09-12 - Number Assignment Status Message Contract
+
+- Updated `/api/v1/me/plan-and-progress/` so number assignment now has an explicit `number_assignment_status` contract: `pending`, `assigned`, or `needs_attention`.
+- Added the same status inside `sentdm_number.number_assignment_status` and `messaging_activation.sms_rcs.number_assignment_status` for easier frontend consumption.
+- Updated pending number copy to: `Messaging activation is in progress. Number assignment may take additional time if local inventory is unavailable.`
+- Added regression coverage for a paid user whose Sender Profile exists but no Sent.dm number has been assigned yet.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q accounts`
+  - `.venv\Scripts\python.exe manage.py test accounts` (4 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (54 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+
+## 2026-09-12 - Client Signup OTP Endpoint
+
+- Added `city` and `country` fields to `accounts.User`; `country_code` remains available for dialing code/phone metadata.
+- Added `POST /api/v1/client/auth/signup/` for new client signup with full name, email, phone number, city, country, and optional country code.
+- Signup creates a new unverified client or updates an existing unverified client, then starts a `REGISTER` OTP session.
+- Verified users cannot re-register with the same phone number; they should use login OTP instead.
+- OTP verification response now includes email, city, country, and country code in the returned user object.
+- Updated Django admin and current-user serializer to expose city/country.
+- Added `accounts/migrations/0005_user_city_user_country.py`.
+- Added regression tests for signup creation, unverified-user resend/update, verified-phone rejection, and signup OTP verification returning the new fields.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q accounts`
+  - `.venv\Scripts\python.exe manage.py test accounts` (8 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (58 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+
+## 2026-09-12 - Current User Patch Read-Only Fields
+
+- Updated `CurrentUserSerializer` so `PATCH /api/v1/me/` cannot change identity/system fields: `id`, `phone_number`, `user_type`, `is_phone_verified`, and `last_activity_at`.
+- Editable profile fields remain updateable through the same endpoint: `email`, `full_name`, `city`, `country`, `country_code`, and `profile_picture`.
+- Added regression coverage proving a PATCH request cannot overwrite phone number, role, phone verification status, or last activity while still updating editable fields.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q accounts`
+  - `.venv\Scripts\python.exe manage.py test accounts` (9 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (59 tests)
+  - `.venv\Scripts\python.exe manage.py check`
+
+## 2026-09-15 - CRM Contacts, CSV Import, Lead Metrics, and Auto-Capture Activities
+
+- Added CRM contact/lead API at `/api/v1/leads/` using the existing `crm.Lead` model as the single contact record.
+- Added first-class `cold`, `warm`, and `hot` lead stages while preserving older stored stages for compatibility.
+- Added lead `source` tracking: `manual`, `csv_upload`, `auto_capture`, and `sentdm`.
+- Made `Lead.business_phone` optional so free/trial users and users awaiting number assignment can still save/import contacts.
+- Added manual contact create/list/detail/update endpoints with Swagger descriptions under `CRM - Contacts`.
+- Added CSV upload endpoint `/api/v1/leads/upload-csv/` with duplicate reporting and row-level error reporting.
+- Added `/api/v1/leads/stats/` for total/hot/warm/cold/opted-out counts.
+- Lead detail now exposes activity timeline, conversation messages, lead score percentage, days in pipeline, message counts, source, and response rate.
+- Sent.dm inbound auto-capture now records contact source and timeline activities: lead created, first reply received, AI welcome/reply sent, and status changed by AI.
+- Added CRM regression tests for manual contact creation, CSV duplicate handling, hot/warm/cold stats/filtering, and detail conversation metrics.
+- Updated Sent.dm AI-stage expectation so `warm` maps to the new `LeadStage.WARM` value.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py test crm` (4 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (63 tests)
+
+## 2026-09-15 - Corrected CRM Contact vs Lead Separation
+
+- Split CRM address-book contacts from pipeline leads.
+- Added `crm.Contact` for saved contacts: full name, country code, phone number, normalized contact number, email, business name, notes, and source.
+- Added `/api/v1/contacts/` for manual contact CRUD.
+- Moved CSV upload to `/api/v1/contacts/upload-csv/`; CSV imports now create Contacts only and return duplicates/errors.
+- Kept `/api/v1/leads/` for actual pipeline leads and made the lead list paginated with `page` and `page_size`.
+- Linked auto-captured Sent.dm inbound texters to both Contact and Lead records.
+- Added `Lead.contact` and `Contact.linked_lead` relationship fields for frontend cross-navigation.
+- Updated tests so manual/CSV contact creation does not create leads, while auto-capture links contact + lead.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py test crm` (4 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (63 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+
+## 2026-09-15 - Current User Chesera Number Endpoint
+
+- Added `GET /api/v1/me/chesera-number/` for the frontend/mobile app to show the authenticated user's dedicated Chesera SMS/RCS number.
+- The endpoint returns `assigned=false` and the existing local-inventory/pending activation message when no Sent.dm number has been assigned yet.
+- The endpoint returns the assigned Sent.dm phone number, profile id/status, provider, and `sms_rcs_active` when a number exists.
+- Added response serializer for Swagger under `User Chesera Number`.
+- Added regression tests for pending and assigned-number states.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py test accounts` (11 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (65 tests)
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+
+## 2026-09-15 - Welcome Message Automation and Stateless AI Message Structuring
+
+- Added `auto_welcome_message_enabled` to `BusinessSetting` and exposed it through `UpdateBusinessSettingSerializer`.
+- Added migration `business/migrations/0034_businesssetting_auto_welcome_message_enabled.py`.
+- Added `PUT/PATCH/GET /api/v1/message-templates/welcome/` for setting and reading the user's welcome message.
+- Reused `StaticMessageTemplate` with `template_type=WELCOME` instead of creating a duplicate welcome-message table.
+- Added Celery task `send_contact_welcome_message_task(contact_id)`.
+- Contact creation and CSV import now queue the welcome task when the business setting is enabled.
+- Welcome messages do not promote Contacts into Leads; Leads are still created only when the person engages/replies through the inbound messaging flow.
+- Added stateless AI endpoint `POST /api/v1/ai/messages/structure/` accepting `tone` and `msg`, returning `structured_msg` without saving data.
+- Added regression coverage for business setting toggle, welcome template upsert, welcome queueing, and AI message structuring.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py test ai business communications crm` (14 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (71 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+
+## 2026-09-15 - Disabled Automatic Welcome Message Sending
+
+- Kept the welcome-message code for future reference, but disabled the runtime flow for compliance safety.
+- Confirmed `communications/urls.py` keeps `/api/v1/message-templates/welcome/` commented out.
+- Changed contact creation/CSV import welcome hook into a no-op, preserving the old queue logic as comments.
+- Commented out the Sent.dm Celery welcome task and added an early disabled return to the welcome send service.
+- Updated tests so the hidden welcome endpoint returns 404 and contact creation does not queue/send welcome messages even when the setting is enabled.
+- Kept the stateless AI endpoint active: `POST /api/v1/ai/messages/structure/`.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py test ai business communications crm sentdm` (52 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (71 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+
+## 2026-09-15 - Lead List Counts, Inbox, and Paginated Conversation API
+
+- Updated `GET /api/v1/leads/` so the paginated response includes `hot_count`, `warm_count`, and `cold_count` alongside `count`, `next`, `previous`, and `results`.
+- Added `GET /api/v1/leads/{id}/conversation/` for full paginated lead message history, keeping `GET /api/v1/leads/{id}/` backward compatible.
+- Added `GET /api/v1/leads/inbox/` for one row per lead with lead details, metrics, unread message count, and the latest message.
+- Added `conversation` id to lead message serializer responses for frontend message grouping/navigation.
+- Added CRM regression tests for lead list counts, paginated conversation retrieval, and inbox latest-message behavior.
+- Verification passed:
+  - `.venv\Scripts\python.exe manage.py test crm` (7 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm` (73 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+## 2026-09-15 - Notification App Integrated
+
+- Reworked the copied `notifications` app into a Chesera-specific notification system.
+- Added Chesera notification types/templates for signup, subscriptions, Sent.dm activation steps, WhatsApp connection, new lead capture, and system alerts.
+- Added REST notification endpoints under `/api/v1/notifications/` with pagination, filters, detail, mark-read, mark-all-read, unread-count, and clear-read actions.
+- Enforced delivery policy: normal users get REST/API notifications only; admin/staff users get REST records plus websocket push events.
+- Added admin-only websocket endpoint `/ws/admin/notifications/?token=<jwt>` using JWT query auth.
+- Added Channels/Redis settings and switched production startup to Daphne/ASGI so websockets can be served.
+- Updated Nginx config with a `/ws/` proxy block and websocket Upgrade headers.
+- Added notification hooks to signup, subscription creation, Sent.dm Sender Profile creation/completion, 10DLC campaign creation, WhatsApp connection, and inbound new-lead auto-capture.
+- Added `notifications.cleanup_read_notifications` Celery task for old read notification cleanup.
+- Added initial notifications migration and regression tests.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q notifications accounts sentdm subscription cheshara_config`
+  - `.venv\Scripts\python.exe manage.py check`
+  - `.venv\Scripts\python.exe manage.py test notifications` (5 tests)
+  - `.venv\Scripts\python.exe manage.py test accounts ai business crm communications subscription sentdm notifications` (78 tests)
+  - `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run`
+  - `.venv\Scripts\python.exe manage.py spectacular --file tmp_schema.yml --validate`
+## 2026-09-15 - Production Docker Pip Install Hardening
+
+- Investigated deployment build failure at `pip install -r requirements.txt` for `aiohttp==3.14.3`.
+- Verified `aiohttp==3.14.3` exists on PyPI, so the failure was caused by PyPI/index read timeout during Docker build rather than an invalid dependency pin.
+- Updated `Dockerfile.prod` with pip timeout/retry environment defaults.
+- Changed the requirements install command to use `--timeout 120 --retries 10`.
+- Removed the duplicate production dependency install layer because `gunicorn`, `psycopg2-binary`, `boto3`, and `django-storages` are already pinned in `requirements.txt`.

@@ -7,6 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from notifications.services import NotificationTemplates, safe_notify
 from .client import SentDMClient, SentDMClientError
 from .models import SentDMProfile
 from .permissions import HasActivePaidSubscription
@@ -136,6 +137,8 @@ class SentDMProfileCreateAPIView(APIView):
 
         try:
             profile, response = create_profile_for_user(request.user, serializer.validated_data)
+            if profile:
+                safe_notify(NotificationTemplates.sentdm_profile_requested, profile)
             return Response(
                 {
                     "success": True,
@@ -159,6 +162,12 @@ class SentDMProfileCreateAPIView(APIView):
                     "confirm the WABA ID, phone number ID, and access token are valid, the phone number belongs to that WABA, "
                     "and the token has the required Meta WhatsApp permissions."
                 )
+            else:
+                response.data["hint"] = (
+                    "Sent.dm rejected the Sender Profile request. Sent.dm requires each profile to either inherit an organization-level WhatsApp Business Account "
+                    "or include direct WABA credentials. If Chesera's organization WhatsApp channel is not configured, add the agent's WABA ID, phone number ID, "
+                    "and access token before retrying."
+                )
             return response
 
 
@@ -176,6 +185,53 @@ class SentDMCurrentProfileAPIView(APIView):
             {"success": True, "data": SentDMProfileSerializer(get_current_profile_or_404(request.user)).data},
             status=status.HTTP_200_OK,
         )
+
+
+class SentDMWhatsAppConnectAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
+    serializer_class = SentDMWhatsAppConnectSerializer
+
+    @extend_schema(
+        tags=["Sent.dm"],
+        summary="Connect agent WhatsApp",
+        description="Connects the authenticated agent's own Meta WhatsApp Business Account to their Sent.dm Sender Profile. WhatsApp remains inactive until Sent.dm accepts the WABA ID, phone number ID, and access token.",
+        request=SentDMWhatsAppConnectSerializer,
+        responses={
+            200: SentDMProfileSerializer,
+            400: OpenApiResponse(description="Missing Sender Profile, invalid WABA credentials, or Sent.dm/Meta rejected the WhatsApp connection."),
+        },
+    )
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            profile, response = connect_agent_whatsapp_for_user(
+                request.user,
+                serializer.validated_data,
+                profile_id=serializer.validated_data.get("profile_id") or None,
+            )
+            safe_notify(NotificationTemplates.whatsapp_connection_requested, profile)
+            return Response(
+                {
+                    "success": True,
+                    "message": "WhatsApp connection request accepted. WhatsApp becomes available after Sent.dm accepts the agent's WABA configuration.",
+                    "data": {
+                        "profile": SentDMProfileSerializer(profile).data,
+                        "sentdm_response": response,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+        except ImproperlyConfigured as exc:
+            return sentdm_error_response(exc)
+        except SentDMClientError as exc:
+            response = sentdm_error_response(exc)
+            response.data["hint"] = (
+                "We could not connect this WhatsApp Business account. Confirm the WABA ID, phone number ID, access token, "
+                "phone-number ownership, and Meta permissions, then try again."
+            )
+            return response
 
 
 class SentDMProfileCompleteAPIView(APIView):
@@ -206,6 +262,7 @@ class SentDMProfileCompleteAPIView(APIView):
 
         try:
             response = complete_profile(profile, request)
+            safe_notify(NotificationTemplates.sentdm_profile_completed, profile)
             return Response(
                 {
                     "success": True,
@@ -270,6 +327,9 @@ class SentDMCampaignCreateAPIView(APIView):
                         "messages": readiness["messages"],
                     }
                 )
+
+            if campaign:
+                safe_notify(NotificationTemplates.sentdm_campaign_requested, campaign)
 
             return Response(
                 {
@@ -355,7 +415,7 @@ class SentDMSendMessageAPIView(APIView):
         profile = get_requested_or_current_profile(request.user, serializer.validated_data.get("profile_id"))
         if not profile:
             raise ValidationError({"profile": "A live Sent.dm Sender Profile is required before sending."})
-        if serializer.validated_data.get("channel") == "whatsapp" and not profile.whatsapp_phone_number:
+        if serializer.validated_data.get("channel") == "whatsapp" and not is_agent_whatsapp_active(profile):
             raise ValidationError(
                 {
                     "whatsapp": "WhatsApp is not active for this Sender Profile. Connect and verify the agent's Meta WhatsApp Business Account first, or send with auto/SMS/RCS."

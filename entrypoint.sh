@@ -11,12 +11,8 @@ python manage.py collectstatic --noinput
 echo "==> Running database migrations..."
 python manage.py migrate --noinput
 
-echo "==> Starting Gunicorn..."
-exec gunicorn cheshara_config.wsgi:application \
-    --bind 0.0.0.0:8005 \
-    --workers 3 \
-    --threads 2 \
-    --timeout 120 \
-    --log-level info \
-    --access-logfile - \
-    --error-logfile -
+echo "==> Starting Daphne ASGI server..."
+exec daphne cheshara_config.asgi:application \
+    --bind 0.0.0.0 \
+    --port 8005 \
+    --access-log -

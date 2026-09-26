@@ -9,6 +9,7 @@ charset-normalizer==3.5.1
 class-registry==2.1.2
 Django==6.0.6
 django-cors-headers==4.9.0
+django-ckeditor-5==0.2.20
 django-extensions==4.1
 django-filter==25.2
 djangorestframework==3.17.1
@@ -49,3 +50,6 @@ django-storages==1.14.4
 boto3==1.38.0
 celery==5.5.3
 redis==5.2.1
+channels==4.3.2
+channels-redis==4.3.0
+daphne==4.2.3

@@ -182,6 +182,7 @@ class BusinessSetting(BaseModel):
     auto_reply_enabled = models.BooleanField(default=True)
     reply_speed = models.PositiveBigIntegerField(default=0)
     auto_follow_up = models.BooleanField(default=True)
+    auto_welcome_message_enabled = models.BooleanField(default=False)
     
     push_notification_enabled = models.BooleanField(default=True)
     email_notification_enabled = models.BooleanField(default=True)

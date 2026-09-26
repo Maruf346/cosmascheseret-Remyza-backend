@@ -33,6 +33,21 @@ class SentDMProfile(BaseModel):
     )
     phone_number = models.CharField(max_length=30, blank=True, default="", db_index=True)
     whatsapp_phone_number = models.CharField(max_length=30, blank=True, default="")
+    whatsapp_connection_source = models.CharField(
+        max_length=30,
+        choices=SentDMWhatsAppConnectionSource.choices,
+        default=SentDMWhatsAppConnectionSource.NONE,
+        db_index=True,
+    )
+    whatsapp_connection_status = models.CharField(
+        max_length=30,
+        choices=SentDMWhatsAppConnectionStatus.choices,
+        default=SentDMWhatsAppConnectionStatus.NOT_CONNECTED,
+        db_index=True,
+    )
+    whatsapp_connection_error = models.TextField(blank=True, default="")
+    whatsapp_connected_at = models.DateTimeField(blank=True, null=True)
+    whatsapp_last_synced_at = models.DateTimeField(blank=True, null=True)
     billing_model = models.CharField(max_length=50, blank=True, default="organization")
     inherit_contacts = models.BooleanField(default=False)
     inherit_templates = models.BooleanField(default=False)
@@ -48,6 +63,14 @@ class SentDMProfile(BaseModel):
             models.Index(fields=["status", "sandbox"]),
             models.Index(fields=["organization", "status"]),
         ]
+
+    @property
+    def is_agent_whatsapp_active(self):
+        return (
+            self.whatsapp_connection_source == SentDMWhatsAppConnectionSource.DIRECT
+            and self.whatsapp_connection_status == SentDMWhatsAppConnectionStatus.ACTIVE
+            and bool(self.whatsapp_phone_number)
+        )
 
     def __str__(self):
         return f"{self.name} ({self.profile_id})"

@@ -8,6 +8,7 @@ urlpatterns = [
     path("sentdm/profiles/create/", SentDMProfileCreateAPIView.as_view(), name="sentdm-profile-create"),
     path("sentdm/profiles/current/", SentDMCurrentProfileAPIView.as_view(), name="sentdm-profile-current"),
     path("sentdm/profiles/complete/", SentDMProfileCompleteAPIView.as_view(), name="sentdm-profile-complete"),
+    path("sentdm/profiles/whatsapp/connect/", SentDMWhatsAppConnectAPIView.as_view(), name="sentdm-profile-whatsapp-connect"),
     path("sentdm/compliance/readiness/", SentDMComplianceReadinessAPIView.as_view(), name="sentdm-compliance-readiness"),
     path("sentdm/campaigns/create/", SentDMCampaignCreateAPIView.as_view(), name="sentdm-campaign-create"),
     path("sentdm/messages/send-sandbox/", SentDMSendSandboxMessageAPIView.as_view(), name="sentdm-message-send-sandbox"),
