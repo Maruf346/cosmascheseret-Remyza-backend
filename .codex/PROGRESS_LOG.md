@@ -659,3 +659,127 @@ Validation run:
 - Updated `Dockerfile.prod` with pip timeout/retry environment defaults.
 - Changed the requirements install command to use `--timeout 120 --retries 10`.
 - Removed the duplicate production dependency install layer because `gunicorn`, `psycopg2-binary`, `boto3`, and `django-storages` are already pinned in `requirements.txt`.
+## 2026-10-06 - Welcome Message Preset Selection API
+
+- Kept the old free-form welcome template endpoint hidden for compliance safety.
+- Added backend-owned welcome message presets: `professional`, `friendly`, and `casual`.
+- Added `/api/v1/welcome-message/`:
+  - `GET` returns all presets and the user's selected preset.
+  - `GET ?template=professional|friendly|casual` returns one preset.
+  - `PUT/PATCH` stores the selected preset by key.
+- Preset messages include STOP opt-out language and are not editable through the API.
+- Refined the three preset messages so each tone is distinct: professional is polished/team-oriented, friendly is warm/helpful, and casual is short/conversational.
+- Added tests for listing presets, retrieving one preset, selecting/updating the selected preset, invalid preset handling, and ignoring custom text.
+- Verification note: `python -m compileall -q communications` passed. Django `test/check` could not run in the current workspace because the `.venv` folder is absent and global Python is missing project dependencies such as `django_extensions`.
+
+## 2026-10-06 - Profile Timezone and Chesera Number QR
+
+- Added optional `timezone` to user profiles with IANA timezone validation.
+- Signup remains unchanged; timezone can be updated later through `PATCH /api/v1/me/`.
+- Extended `GET /api/v1/me/chesera-number/` with `qr_payload` and `qr_code_base64`.
+- QR payload uses `sms:+number` for assigned Sent.dm/Chesera numbers.
+- QR image data is generated per request and not stored in the database.
+- Added `qrcode[pil]` dependency.
+- Added account tests for timezone update/validation and QR fields on assigned/pending Chesera number responses.
+
+## 2026-10-07 - Automated Follow-up Sequence
+
+- Added `crm.AutomatedFollowUp` for customer-facing automated follow-up messages while leaving the existing manual `FollowUpReminder` model untouched.
+- Added Day 1, Day 3, Day 7, and Day 14 follow-up scheduling for newly auto-captured inbound Sent.dm leads.
+- Added backend-controlled follow-up message templates with STOP opt-out language.
+- Added due follow-up sending through `sentdm.tasks.send_due_automated_follow_ups_task`.
+- Registered a Celery beat schedule to run due automated follow-ups every minute.
+- Updated follow-up channel policy so WhatsApp/auto follow-ups outside the 24-hour customer-service window route to SMS.
+- Added follow-up scheduled/sent/failed notification types and templates for normal REST notifications.
+- STOP/opt-out now cancels pending automated follow-up messages in addition to stopping manual reminders.
+- Added regression tests for scheduling, STOP cancellation, send success notification, send failure notification, and WhatsApp-to-SMS follow-up routing.
+- Verification note: `python -m compileall -q crm sentdm notifications cheshara_config` passed. Focused Django tests could not run in the current workspace because global Python is missing `django_extensions`; restore/install the project venv to run the full test suite.
+
+## 2026-10-08 - Sent.dm WhatsApp Config Read API
+
+- Added `GET /api/v1/sentdm/profiles/whatsapp/connect/` beside the existing POST connect endpoint.
+- The GET response returns the authenticated paid user's saved WhatsApp config: `profile_id`, `waba_id`, `phone_number_id`, and `access_token`.
+- Added `SentDMWhatsAppConfigSerializer` for Swagger documentation.
+- Added a regression test for returning saved WhatsApp config from the endpoint.
+
+## 2026-10-08 - Swagger Schema Cleanup
+
+- Added `SPECTACULAR_SETTINGS["GENERIC_ADDITIONAL_PROPERTIES"] = None` to remove noisy `additionalProp` placeholders for generic object/JSON schema fields.
+- Added explicit response envelope serializers for auth OTP/signup/login responses, current-user update, Chesera-number response, AI structured message response, welcome-message preset responses, Sent.dm current profile, Sent.dm profile actions, and WhatsApp config read response.
+- Updated `@extend_schema` response mappings so Swagger shows the real `{ success, message, data }` shape where those endpoints return that envelope.
+- Verification note: `python -m compileall -q accounts ai communications sentdm cheshara_config` passed. `python manage.py spectacular --file tmp_schema.yml --validate` is still blocked in this local workspace because global Python is missing `django_extensions`; run it after restoring/installing the project venv.
+
+## 2026-10-08 - Swagger Current User and Pagination Cleanup
+
+- Fixed `GET /api/v1/me/` Swagger response documentation by adding explicit current-user response serializers for the returned `{ success, message, data }` envelope.
+- Fixed `GET /api/v1/me/plan-and-progress/` Swagger response documentation by adding an explicit nested response serializer for plan status, Sent.dm onboarding status, number assignment, WhatsApp status, messaging activation, and progress steps.
+- Fixed `GET /api/v1/me/onboarding-status/` Swagger response documentation by adding an explicit response serializer for the returned business onboarding step.
+- Added paginated response serializers for CRM contacts, lead inbox, lead conversation messages, notifications, and user subscriptions.
+- Updated Swagger list responses so paginated endpoints show `count`, `next`, `previous`, and `results` instead of raw arrays.
+- Updated `GET /api/v1/user-subscription/` to use actual page/page_size pagination at runtime.
+- Updated reference-data list schemas for business types and industries to show their real `{ success, count, data }` response envelope.
+- Verification note: `python -m compileall -q accounts crm notifications subscription core`, `python -m compileall -q accounts`, and `python -m compileall -q business` passed. Full OpenAPI validation is still blocked locally because global Python is missing `django_extensions`; run `python manage.py spectacular --file tmp_schema.yml --validate` after restoring/installing the project venv.
+
+## 2026-10-10 - Sent.dm Structured 10DLC Opt-in Compliance
+
+- Verified through the Sent.dm MCP server that US 10DLC Sender Profile creation uses `sender_profiles.create` with `smsCountry=US`, `smsNumberType=TEN_DLC`, and nested `compliance.brand` plus `compliance.campaign`.
+- Added structured 10DLC brand fields to `Organization`: tax ID type, EIN issuing country, entity type, business street/city/state/postal code.
+- Added structured opt-in evidence fields: opt-in method, starting URL, form URL, screenshot URL, checkbox text, SMS disclaimer, privacy-policy no-mobile-sharing confirmation, optional consent confirmation, unchecked checkbox confirmation, marketing disclosure, and donation solicitation disclosure.
+- Exposed those fields through business serializers and Django admin.
+- Updated Sent.dm profile payload generation so Sender Profile creation now includes:
+  - `smsCountry: "US"`
+  - `smsNumberType: "TEN_DLC"`
+  - `compliance.brand`
+  - `compliance.campaign`
+- Added backend-generated `message_flow` text from structured opt-in fields instead of relying only on a manually written description.
+- Tightened Sent.dm readiness checks so incomplete brand data or opt-in evidence blocks profile/campaign setup with clear missing-field messages.
+- Added migration `business/migrations/0035_organization_sentdm_structured_opt_in.py`.
+- Added focused tests for generated Sent.dm 10DLC profile compliance payload and generated message flow.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q business sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm.tests.SentDMClientSandboxTests sentdm.tests.SentDMPaidSubscriptionPermissionTests`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing pending migrations in `crm` and `supports`; it did not report a missing `business` migration for these new fields.
+
+## 2026-10-10 - Admin User Management API
+
+- Added staff/admin-only user management endpoints:
+  - `GET /api/v1/admin/users/`
+  - `GET /api/v1/admin/users/{user_id}/`
+  - `PATCH /api/v1/admin/users/{user_id}/`
+  - `DELETE /api/v1/admin/users/{user_id}/`
+  - `GET /api/v1/admin/users/export/`
+- User list returns summary counters: total users, active users, blocked users, and users on trial.
+- User list rows include user ID, name, business name, profile picture, email, phone, normalized plan (`pro`, `trial`, or `free`), sent-message count, lead count, active status, and joined date.
+- Added filters for `plan` and `is_active`, plus search by user name, phone, email, and business name.
+- Added DRF page/page_size pagination to the admin user list.
+- Toggle endpoint maps `is_active=true` to `status=ACTIVE` and `is_active=false` to `status=INACTIVE`, matching the existing project status model.
+- CSV export uses the same search/filter logic as the list endpoint.
+- Added missing `supports/migrations/0001_initial.py`; this fixes user delete cascade/test failures caused by `supports.Feedback.user` pointing to users without a migrated feedback table.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q accounts`
+  - `.venv\Scripts\python.exe manage.py test accounts.tests.AdminUserManagementAPIViewTests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` now only reports unrelated pre-existing CRM migration drift.
+
+## 2026-10-10 - Admin User Detail and Export Enhancements
+
+- Extended admin user retrieve response with:
+  - days active
+  - response rate
+  - business type
+  - timezone
+  - humanized last active value
+  - Chesera number
+  - expanded plan details: plan, price, start date, next renewal/end date
+- Admin export now supports:
+  - `format=csv|xlsx`
+  - `delimiter=comma|semicolon|tab` for CSV
+  - `date_range=all_time|last_week|last_month` based on user joined date
+  - `columns=` comma-separated selected columns
+- Supported export columns are: `user_id`, `full_name`, `email`, `phone`, `business_name`, `business_type`, `plan`, `status`, `messages_sent_count`, `leads_count`, `joined_date`, `last_active`, and `chesera_number`.
+- Added `openpyxl==3.1.5` to `requirements.txt` for XLSX export.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q accounts`
+  - `.venv\Scripts\python.exe manage.py test accounts.tests.AdminUserManagementAPIViewTests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Local note: the current venv does not yet have `openpyxl` installed; run `.venv\Scripts\pip.exe install -r requirements.txt` before locally testing `format=xlsx`.

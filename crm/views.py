@@ -21,10 +21,13 @@ from .serializers import (
     WARM_STAGE_VALUES,
     ContactCSVUploadResponseSerializer,
     ContactCSVUploadSerializer,
+    ContactPaginatedResponseSerializer,
     ContactSerializer,
     LeadDetailSerializer,
     LeadInboxSerializer,
+    LeadInboxPaginatedResponseSerializer,
     LeadListResponseSerializer,
+    LeadMessagePaginatedResponseSerializer,
     LeadMessageSerializer,
     LeadSerializer,
     LeadStatsSerializer,
@@ -128,7 +131,7 @@ class ContactViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         summary="List contacts",
         description="Returns saved address-book contacts. These are not leads until the contact enters the messaging/pipeline flow.",
         parameters=[OpenApiParameter("search", str, required=False, description="Search by name, phone, email, or business name.")],
-        responses={200: ContactSerializer(many=True)},
+        responses={200: ContactPaginatedResponseSerializer},
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -369,7 +372,7 @@ class LeadViewSet(OrganizationScopedMixin, mixins.ListModelMixin, mixins.Retriev
             OpenApiParameter("source", str, required=False, description="Filter by source: auto_capture, sentdm, manual, or csv_upload."),
             OpenApiParameter("search", str, required=False, description="Search by name, phone, email, or business name."),
         ],
-        responses={200: LeadInboxSerializer(many=True)},
+        responses={200: LeadInboxPaginatedResponseSerializer},
     )
     @action(detail=False, methods=["get"], url_path="inbox")
     def inbox(self, request):
@@ -401,7 +404,7 @@ class LeadViewSet(OrganizationScopedMixin, mixins.ListModelMixin, mixins.Retriev
             OpenApiParameter("page", int, required=False, description="Page number."),
             OpenApiParameter("page_size", int, required=False, description="Items per page, up to 100."),
         ],
-        responses={200: LeadMessageSerializer(many=True)},
+        responses={200: LeadMessagePaginatedResponseSerializer},
     )
     @action(detail=True, methods=["get"], url_path="conversation")
     def conversation(self, request, pk=None):

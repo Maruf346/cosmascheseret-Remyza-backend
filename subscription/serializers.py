@@ -83,3 +83,10 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
         )
         transaction.on_commit(lambda: safe_notify(NotificationTemplates.subscription_recorded, subscription))
         return subscription
+
+
+class UserSubscriptionListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = UserSubscriptionSerializer(many=True)

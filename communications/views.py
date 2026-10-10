@@ -1,71 +1,109 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .choices import MessageTemplateType
-from .models import StaticMessageTemplate
-from .serializers import WelcomeMessageTemplateSerializer
+from .serializers import (
+    WelcomeMessagePresetResponseSerializer,
+    WelcomeMessageSelectionSerializer,
+    WelcomeMessageSelectionResponseSerializer,
+    WelcomeMessageTemplateSerializer,
+    WelcomeTemplatePresetSerializer,
+    get_selected_welcome_template,
+    save_selected_welcome_template,
+)
+from .welcome_templates import get_welcome_template, list_welcome_templates
 
 
 class WelcomeMessageTemplateAPIView(APIView):
+    """Legacy free-form welcome endpoint kept intentionally unrouted."""
     permission_classes = [IsAuthenticated]
 
-    def get_template(self, user):
-        organization = getattr(user, "organization", None)
-        if not organization:
-            raise ValidationError({"organization": "Create your business profile before setting a welcome message."})
-        return StaticMessageTemplate.objects.filter(
-            organization=organization,
-            user=user,
-            template_type=MessageTemplateType.WELCOME,
-        ).first()
+    def get(self, request):
+        return Response(status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request):
+        return Response(status=status.HTTP_404_NOT_FOUND)
+
+    def patch(self, request):
+        return Response(status=status.HTTP_404_NOT_FOUND)
+
+
+class WelcomeMessagePresetAPIView(APIView):
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(
         tags=["Communications - Templates"],
-        summary="Get welcome message",
-        description="Returns the authenticated user's configured welcome message template. This text is used when automatic welcome messages are enabled in business settings.",
-        responses={200: WelcomeMessageTemplateSerializer, 404: OpenApiResponse(description="Welcome message is not configured yet.")},
+        summary="Get welcome message preset templates",
+        description=(
+            "Returns backend-owned welcome message templates. Pass `template=professional`, "
+            "`friendly`, or `casual` to fetch one preset. Without `template`, returns all presets "
+            "plus the authenticated user's selected welcome template when configured."
+        ),
+        parameters=[OpenApiParameter("template", str, required=False, description="Preset key: professional, friendly, or casual.")],
+        responses={200: WelcomeMessagePresetResponseSerializer, 400: OpenApiResponse(description="Invalid template key.")},
     )
     def get(self, request):
-        template = self.get_template(request.user)
-        if not template:
-            raise NotFound("Welcome message is not configured yet.")
-        return Response({"success": True, "data": WelcomeMessageTemplateSerializer(template).data})
+        template_key = (request.query_params.get("template") or "").strip().lower()
+        selected = get_selected_welcome_template(request.user)
+
+        if template_key:
+            preset = get_welcome_template(template_key)
+            if not preset:
+                raise ValidationError({"template": "Choose one of: professional, friendly, casual."})
+            return Response(
+                {
+                    "success": True,
+                    "data": {
+                        "template": preset,
+                        "selected": WelcomeMessageTemplateSerializer(selected).data if selected else None,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "templates": list_welcome_templates(),
+                    "selected": WelcomeMessageTemplateSerializer(selected).data if selected else None,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(
         tags=["Communications - Templates"],
-        summary="Set welcome message",
-        description="Creates or updates the authenticated user's welcome message template.",
-        request=WelcomeMessageTemplateSerializer,
-        responses={200: WelcomeMessageTemplateSerializer, 400: OpenApiResponse(description="Invalid template data.")},
+        summary="Select welcome message preset",
+        description="Saves one backend-owned welcome message preset for the authenticated user. Free-form welcome text is not accepted.",
+        request=WelcomeMessageSelectionSerializer,
+        responses={200: WelcomeMessageSelectionResponseSerializer, 400: OpenApiResponse(description="Invalid template key or missing business profile.")},
     )
     def put(self, request):
-        return self.upsert(request)
+        return self.select_template(request)
 
     @extend_schema(
         tags=["Communications - Templates"],
-        summary="Partially update welcome message",
-        description="Partially updates the authenticated user's welcome message template.",
-        request=WelcomeMessageTemplateSerializer,
-        responses={200: WelcomeMessageTemplateSerializer, 400: OpenApiResponse(description="Invalid template data.")},
+        summary="Update selected welcome message preset",
+        description="Updates the selected backend-owned welcome message preset. Free-form welcome text is not accepted.",
+        request=WelcomeMessageSelectionSerializer,
+        responses={200: WelcomeMessageSelectionResponseSerializer, 400: OpenApiResponse(description="Invalid template key or missing business profile.")},
     )
     def patch(self, request):
-        return self.upsert(request, partial=True)
+        return self.select_template(request)
 
-    def upsert(self, request, partial=False):
-        template = self.get_template(request.user)
-        serializer = WelcomeMessageTemplateSerializer(
-            template,
-            data=request.data,
-            partial=partial,
-            context={"request": request},
-        )
+    def select_template(self, request):
+        serializer = WelcomeMessageSelectionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        template = serializer.save()
+        template = save_selected_welcome_template(request.user, serializer.validated_data["template"])
         return Response(
-            {"success": True, "message": "Welcome message saved successfully.", "data": WelcomeMessageTemplateSerializer(template).data},
+            {
+                "success": True,
+                "message": "Welcome message template selected successfully.",
+                "data": WelcomeMessageTemplateSerializer(template).data,
+            },
             status=status.HTTP_200_OK,
         )

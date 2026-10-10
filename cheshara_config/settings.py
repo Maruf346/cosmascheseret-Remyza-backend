@@ -2,6 +2,8 @@ from pathlib import Path
 from datetime import timedelta
 import os
 
+from celery.schedules import crontab
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 from dotenv import load_dotenv
@@ -88,6 +90,7 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Chesera API',
     'DESCRIPTION': 'API documentation for Chesera project',
     'VERSION': '1.0.0',
+    'GENERIC_ADDITIONAL_PROPERTIES': None,
     'TAGS': [
         {'name': 'Auth - Admin', 'description': 'Admin authentication endpoints.'},
         {'name': 'Auth - User', 'description': 'Client OTP authentication endpoints.'},
@@ -100,7 +103,8 @@ SPECTACULAR_SETTINGS = {
         {'name': 'User Subscriptions', 'description': 'Apple/Google in-app subscription records and admin subscription review.'},
         {'name': 'Reference Data', 'description': 'Business type and industry reference data.'},
         {'name': 'API Schema', 'description': 'OpenAPI schema endpoint used by Swagger and ReDoc.'},
-    ],    'SECURITY': [{'BearerAuth': []}],
+    ],    
+    'SECURITY': [{'BearerAuth': []}],
     'COMPONENTS': {
         'SECURITY_SCHEMES': {
             'BearerAuth': {
@@ -109,6 +113,11 @@ SPECTACULAR_SETTINGS = {
                 'bearerFormat': 'JWT',
             }
         }
+    },
+    # Add Swagger UI settings to sort tags alphabetically
+    'SWAGGER_UI_SETTINGS': {
+        'tagsSorter': 'alpha',      # Sorts tag groups alphabetically
+        'operationsSorter': 'alpha',# (Optional) Sorts endpoints inside each tag alphabetically
     },
 }
 
@@ -271,6 +280,12 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "False").strip().lower() in ("true", "1", "yes")
 CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_BEAT_SCHEDULE = {
+    "send-due-automated-follow-ups-every-minute": {
+        "task": "sentdm.tasks.send_due_automated_follow_ups_task",
+        "schedule": crontab(),
+    },
+}
 SENTDM_WEBHOOK_ASYNC_ENABLED = os.getenv("SENTDM_WEBHOOK_ASYNC_ENABLED", "True").strip().lower() in ("true", "1", "yes")
 
 # Channels / WebSocket notifications

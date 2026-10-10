@@ -7,7 +7,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Notification
-from .serializers import NotificationSerializer, NotificationUnreadCountSerializer
+from .serializers import (
+    NotificationClearReadResponseSerializer,
+    NotificationMarkAllReadResponseSerializer,
+    NotificationPaginatedResponseSerializer,
+    NotificationSerializer,
+    NotificationUnreadCountSerializer,
+)
 
 
 class NotificationPagination(PageNumberPagination):
@@ -28,7 +34,7 @@ class NotificationPagination(PageNumberPagination):
             OpenApiParameter("page", int, required=False, description="Page number."),
             OpenApiParameter("page_size", int, required=False, description="Items per page, up to 100."),
         ],
-        responses={200: NotificationSerializer(many=True)},
+        responses={200: NotificationPaginatedResponseSerializer},
     ),
     retrieve=extend_schema(
         tags=["Notifications"],
@@ -70,7 +76,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     @extend_schema(
         tags=["Notifications"],
         summary="Mark all notifications as read",
-        responses={200: OpenApiResponse(description="Notifications marked as read.")},
+        responses={200: NotificationMarkAllReadResponseSerializer},
     )
     @action(detail=False, methods=["post"], url_path="mark-all-read")
     def mark_all_read(self, request):
@@ -90,7 +96,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     @extend_schema(
         tags=["Notifications"],
         summary="Delete read notifications",
-        responses={200: OpenApiResponse(description="Read notifications deleted.")},
+        responses={200: NotificationClearReadResponseSerializer},
     )
     @action(detail=False, methods=["delete"], url_path="clear-read")
     def clear_read(self, request):

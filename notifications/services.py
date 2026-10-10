@@ -266,6 +266,83 @@ class NotificationTemplates:
         )
 
     @staticmethod
+    def automated_followups_scheduled(lead, followups):
+        user = getattr(lead.organization, "owner", None)
+        if not user:
+            return None
+
+        next_followup = min(followups, key=lambda item: item.scheduled_time) if followups else None
+        return NotificationService.create_notification(
+            user=user,
+            notification_type=NotificationType.FOLLOW_UP_SCHEDULED,
+            title="Follow-up sequence scheduled",
+            body=(
+                f"Automated follow-ups were scheduled for {lead.contact_number}."
+                if not next_followup
+                else f"Automated follow-ups were scheduled for {lead.contact_number}. Next follow-up is Day {next_followup.sequence_day}."
+            ),
+            data={
+                "lead_id": str(lead.id),
+                "contact_number": lead.contact_number,
+                "followups": [
+                    {
+                        "id": str(item.id),
+                        "sequence_day": item.sequence_day,
+                        "scheduled_time": item.scheduled_time.isoformat(),
+                        "requested_channel": item.requested_channel,
+                    }
+                    for item in followups
+                ],
+            },
+            priority=NotificationPriority.NORMAL,
+            push_websocket=False,
+        )
+
+    @staticmethod
+    def automated_followup_sent(followup):
+        lead = followup.lead
+        user = getattr(followup.organization, "owner", None)
+        if not user:
+            return None
+        return NotificationService.create_notification(
+            user=user,
+            notification_type=NotificationType.FOLLOW_UP_SENT,
+            title="Follow-up sent",
+            body=f"Day {followup.sequence_day} follow-up was sent to {lead.contact_number}.",
+            data={
+                "lead_id": str(lead.id),
+                "followup_id": str(followup.id),
+                "sequence_day": followup.sequence_day,
+                "channel": followup.resolved_channel,
+                "sentdm_message_id": followup.sentdm_message_id,
+            },
+            priority=NotificationPriority.NORMAL,
+            push_websocket=False,
+        )
+
+    @staticmethod
+    def automated_followup_failed(followup):
+        lead = followup.lead
+        user = getattr(followup.organization, "owner", None)
+        if not user:
+            return None
+        return NotificationService.create_notification(
+            user=user,
+            notification_type=NotificationType.FOLLOW_UP_FAILED,
+            title="Follow-up failed",
+            body=f"Day {followup.sequence_day} follow-up to {lead.contact_number} could not be sent.",
+            data={
+                "lead_id": str(lead.id),
+                "followup_id": str(followup.id),
+                "sequence_day": followup.sequence_day,
+                "channel": followup.resolved_channel or followup.requested_channel,
+                "error": followup.error_message,
+            },
+            priority=NotificationPriority.HIGH,
+            push_websocket=False,
+        )
+
+    @staticmethod
     def system_alert(user, title, body, data=None):
         return NotificationService.create_notification(
             user=user,

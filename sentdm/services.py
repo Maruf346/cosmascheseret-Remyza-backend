@@ -18,8 +18,8 @@ from business.models import PhoneNumber, PhoneNumberStatus
 from communications.choices import ConversationStatus, MessageDirection, MessageStatus
 from communications.choices import MessageTemplateType
 from communications.models import Conversation, Message, StaticMessageTemplate
-from crm.choices import LeadActivityType, LeadSource, LeadStage
-from crm.models import Contact, FollowUpReminder, Lead, LeadActivity
+from crm.choices import AutomatedFollowUpStatus, LeadActivityType, LeadSource, LeadStage
+from crm.models import AutomatedFollowUp, Contact, FollowUpReminder, Lead, LeadActivity
 
 from .choices import SentDMChannel, SentDMCampaignStatus, SentDMMessageDirection, SentDMMessageStatus, SentDMProfileStatus, SentDMWebhookEventStatus, SentDMWhatsAppConnectionSource, SentDMWhatsAppConnectionStatus
 from .client import SentDMClient, SentDMClientError
@@ -67,14 +67,109 @@ def get_sentdm_whatsapp_business_account(organization):
         "phone_number_id": values["sentdm_whatsapp_phone_number_id"],
         "access_token": values["sentdm_whatsapp_access_token"],
     }
+
+
+def clean_attr(obj, field, default=""):
+    return str(getattr(obj, field, default) or "").strip()
+
+
+def build_sentdm_message_flow(organization):
+    brand_name = clean_attr(organization, "sentdm_legal_name") or clean_attr(organization, "name")
+    method = clean_attr(organization, "sentdm_opt_in_method").lower()
+    starting_url = clean_attr(organization, "sentdm_opt_in_starting_url")
+    opt_in_url = clean_attr(organization, "sentdm_opt_in_form_url") or clean_attr(organization, "sentdm_opt_in_url")
+    screenshot_url = clean_attr(organization, "sentdm_opt_in_screenshot_url")
+    checkbox_text = clean_attr(organization, "sentdm_opt_in_checkbox_text")
+    disclaimer = clean_attr(organization, "sentdm_sms_disclaimer_text")
+    legacy_description = clean_attr(organization, "sentdm_opt_in_description")
+
+    method_labels = {
+        "web": "web/digital form",
+        "spoken": "spoken consent",
+        "physical": "physical/paper form",
+        "subscriber_initiated": "subscriber-initiated first message",
+    }
+    method_label = method_labels.get(method, method or "documented opt-in process")
+
+    parts = [f"SMS opt-in for {brand_name} is collected through {method_label}."]
+    if method == "web":
+        parts.append(f"Subscribers navigate to {opt_in_url} from {starting_url}.")
+        parts.append("The opt-in form includes an optional, unchecked SMS consent checkbox.")
+    elif method == "spoken":
+        parts.append("Consent is collected verbally using the documented script below before any SMS is sent.")
+    elif method == "physical":
+        parts.append("Consent is collected on a physical form before any SMS is sent.")
+    elif method == "subscriber_initiated":
+        parts.append("The business publishes its Chesera/Sent.dm number with SMS disclosures, and subscribers opt in by sending the first message.")
+
+    if legacy_description:
+        parts.append(legacy_description)
+    if checkbox_text:
+        parts.append(f"Checkbox/consent text: {checkbox_text}")
+    if disclaimer:
+        parts.append(f"SMS disclaimer: {disclaimer}")
+    if screenshot_url:
+        parts.append(f"Hosted opt-in screenshot: {screenshot_url}")
+    parts.append(f"Privacy Policy: {clean_attr(organization, 'sentdm_privacy_policy_url')}")
+    parts.append(f"Terms: {clean_attr(organization, 'sentdm_terms_url')}")
+    parts.append("Privacy policy confirms no mobile information will be sold or shared with third parties for promotional or marketing purposes.")
+    return " ".join(part for part in parts if part).strip()
+
+
+def build_sentdm_brand_compliance(organization, user):
+    legal_name = clean_attr(organization, "sentdm_legal_name") or clean_attr(organization, "name")
+    return {
+        "inherit": False,
+        "legal_name": legal_name,
+        "business_name": clean_attr(organization, "name") or legal_name,
+        "tax_id": clean_attr(organization, "sentdm_tax_id"),
+        "tax_id_type": clean_attr(organization, "sentdm_tax_id_type") or "EIN",
+        "ein_issuing_country": clean_attr(organization, "sentdm_ein_issuing_country") or "US",
+        "entity_type": clean_attr(organization, "sentdm_entity_type"),
+        "street": clean_attr(organization, "sentdm_brand_street"),
+        "city": clean_attr(organization, "sentdm_brand_city"),
+        "state": clean_attr(organization, "sentdm_brand_state"),
+        "postal_code": clean_attr(organization, "sentdm_brand_postal_code"),
+        "country": clean_attr(organization, "country") or "US",
+        "website": clean_attr(organization, "website"),
+        "contact_name": clean_attr(organization, "sentdm_authorized_rep_name") or getattr(user, "full_name", ""),
+        "contact_email": clean_attr(organization, "sentdm_authorized_rep_email") or clean_attr(organization, "sentdm_support_email") or getattr(user, "email", ""),
+        "contact_phone": clean_attr(organization, "sentdm_authorized_rep_phone") or getattr(user, "phone_number", ""),
+    }
+
+
+def build_sentdm_campaign_compliance(organization):
+    volume = int(getattr(organization, "sentdm_expected_daily_volume", 0) or 0)
+    campaign = {
+        "inherit": False,
+        "description": clean_attr(organization, "sentdm_messaging_use_case"),
+        "message_flow": build_sentdm_message_flow(organization),
+        "use_cases": [clean_attr(organization, "sentdm_messaging_use_case_us").upper() or "CUSTOMER_CARE"],
+        "opt_in_message": clean_attr(organization, "sentdm_opt_in_confirmation_message"),
+        "opt_out_message": clean_attr(organization, "sentdm_opt_out_confirmation_message"),
+        "help_message": clean_attr(organization, "sentdm_help_response_message"),
+        "opt_in_keywords": "YES, START, SUBSCRIBE",
+        "opt_out_keywords": "STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT",
+        "help_keywords": "HELP",
+        "privacy_policy_link": clean_attr(organization, "sentdm_privacy_policy_url"),
+        "terms_and_conditions_link": clean_attr(organization, "sentdm_terms_url"),
+        "volume": str(volume) if volume > 0 else "",
+    }
+    return campaign
+
+
+def build_sentdm_profile_compliance(organization, user):
+    return {
+        "brand": build_sentdm_brand_compliance(organization, user),
+        "campaign": build_sentdm_campaign_compliance(organization),
+    }
+
+
 def build_profile_payload(organization, user, overrides=None):
     overrides = overrides or {}
     name = getattr(organization, "name", "") or user.full_name or user.phone_number
     email = getattr(organization, "email", "") or user.email or ""
-    legal_name = getattr(organization, "sentdm_legal_name", "") or name
     support_email = getattr(organization, "sentdm_support_email", "") or email
-    authorized_rep_name = getattr(organization, "sentdm_authorized_rep_name", "") or user.full_name or name
-    vertical = getattr(organization, "sentdm_vertical", "") or "PROFESSIONAL"
 
     payload = {
         "name": overrides.get("name") or name,
@@ -86,28 +181,14 @@ def build_profile_payload(organization, user, overrides=None):
         "billing_model": "organization",
     }
 
+    if organization:
+        payload["smsCountry"] = "US"
+        payload["smsNumberType"] = "TEN_DLC"
+        payload["compliance"] = build_sentdm_profile_compliance(organization, user)
+
     whatsapp_business_account = get_sentdm_whatsapp_business_account(organization)
     if whatsapp_business_account:
         payload["whatsapp_business_account"] = whatsapp_business_account
-
-    website = getattr(organization, "website", "")
-    if website or support_email:
-        payload["brand"] = {
-            "contact": {
-                "name": authorized_rep_name,
-                "businessName": legal_name,
-                "email": overrides.get("email") or support_email,
-            },
-            "business": {
-                "legalName": legal_name,
-                "country": getattr(organization, "country", "US") or "US",
-            },
-            "compliance": {
-                "vertical": vertical,
-                "brandRelationship": "SMALL_ACCOUNT",
-                "isTcrApplication": True,
-            },
-        }
     return payload
 
 def get_response_whatsapp_phone_number(data):
@@ -279,10 +360,21 @@ def connect_agent_whatsapp_for_user(user, whatsapp_data, profile_id=None):
     return profile, response
 SENTDM_10DLC_REQUIRED_FIELDS = {
     "sentdm_legal_name": "Legal business name is required for 10DLC registration.",
+    "sentdm_tax_id": "Business tax ID/EIN is required for 10DLC brand registration.",
+    "sentdm_tax_id_type": "Tax ID type is required for 10DLC brand registration.",
+    "sentdm_entity_type": "Business entity type is required for 10DLC brand registration.",
+    "sentdm_brand_street": "Business street address is required for 10DLC brand registration.",
+    "sentdm_brand_city": "Business city is required for 10DLC brand registration.",
+    "sentdm_brand_state": "Business state is required for 10DLC brand registration.",
+    "sentdm_brand_postal_code": "Business postal code is required for 10DLC brand registration.",
+    "sentdm_authorized_rep_name": "Authorized representative name is required for 10DLC brand registration.",
+    "sentdm_authorized_rep_email": "Authorized representative email is required for 10DLC brand registration.",
+    "sentdm_authorized_rep_phone": "Authorized representative phone is required for 10DLC brand registration.",
     "sentdm_support_email": "Support email is required for HELP autoresponses.",
     "sentdm_privacy_policy_url": "Privacy Policy URL is required for 10DLC registration.",
     "sentdm_terms_url": "Terms and Conditions URL is required for 10DLC registration.",
-    "sentdm_opt_in_description": "Opt-in/message-flow description is required for 10DLC registration.",
+    "sentdm_opt_in_method": "Opt-in method is required: web, spoken, physical, or subscriber_initiated.",
+    "sentdm_sms_disclaimer_text": "SMS disclaimer text is required for 10DLC opt-in documentation.",
     "sentdm_messaging_use_case": "Campaign description/use case is required for 10DLC registration.",
     "sentdm_messaging_use_case_us": "US messaging use-case value is required for 10DLC registration.",
     "sentdm_sample_message_1": "At least one realistic sample message is required for 10DLC registration.",
@@ -292,6 +384,119 @@ SENTDM_10DLC_REQUIRED_FIELDS = {
 }
 SENTDM_SAMPLE_FIELDS = ("sentdm_sample_message_1", "sentdm_sample_message_2", "sentdm_sample_message_3")
 SENTDM_TWO_SAMPLE_USE_CASES = {"MARKETING", "MIXED", "LOW_VOLUME"}
+SENTDM_OPT_IN_METHODS = {"web", "spoken", "physical", "subscriber_initiated"}
+
+
+def add_missing_field(missing_fields, messages, field, message):
+    if field not in missing_fields:
+        missing_fields.append(field)
+        messages[field] = message
+
+
+def validate_sentdm_structured_opt_in(organization, missing_fields, messages):
+    method = clean_attr(organization, "sentdm_opt_in_method").lower()
+    if method and method not in SENTDM_OPT_IN_METHODS:
+        add_missing_field(
+            missing_fields,
+            messages,
+            "sentdm_opt_in_method",
+            "Opt-in method must be one of: web, spoken, physical, subscriber_initiated.",
+        )
+        return
+
+    if not getattr(organization, "sentdm_privacy_policy_no_mobile_sharing", False):
+        add_missing_field(
+            missing_fields,
+            messages,
+            "sentdm_privacy_policy_no_mobile_sharing",
+            "Confirm that the privacy policy says mobile information will not be sold or shared with third parties for promotional or marketing purposes.",
+        )
+
+    if method in {"web", "physical"}:
+        if not getattr(organization, "sentdm_sms_consent_optional", False):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_sms_consent_optional",
+                "SMS consent must be optional and distinct from general form submission.",
+            )
+        if not getattr(organization, "sentdm_sms_checkbox_not_prefilled", False):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_sms_checkbox_not_prefilled",
+                "The SMS consent checkbox must not be prefilled.",
+            )
+
+    if method == "web":
+        if not clean_attr(organization, "sentdm_opt_in_starting_url"):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_opt_in_starting_url",
+                "Starting URL is required to document how subscribers navigate to the opt-in form.",
+            )
+        if not clean_attr(organization, "sentdm_opt_in_form_url") and not clean_attr(organization, "sentdm_opt_in_url"):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_opt_in_form_url",
+                "Public opt-in form URL is required for web opt-in documentation.",
+            )
+        if not clean_attr(organization, "sentdm_opt_in_checkbox_text"):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_opt_in_checkbox_text",
+                "SMS checkbox/consent text is required for web opt-in documentation.",
+            )
+    elif method == "spoken":
+        if not clean_attr(organization, "sentdm_opt_in_description"):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_opt_in_description",
+                "Spoken opt-in requires a script explaining how verbal SMS consent is collected.",
+            )
+    elif method == "physical":
+        if not clean_attr(organization, "sentdm_opt_in_description"):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_opt_in_description",
+                "Physical opt-in requires a description of where/how the paper form is collected.",
+            )
+        if not clean_attr(organization, "sentdm_opt_in_screenshot_url"):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_opt_in_screenshot_url",
+                "Hosted screenshot URL is required for physical opt-in form documentation.",
+            )
+    elif method == "subscriber_initiated":
+        if not clean_attr(organization, "sentdm_opt_in_description"):
+            add_missing_field(
+                missing_fields,
+                messages,
+                "sentdm_opt_in_description",
+                "Subscriber-initiated opt-in requires a description of where the number/keyword and disclosures are published.",
+            )
+
+    use_case = clean_attr(organization, "sentdm_messaging_use_case_us").upper()
+    if use_case == "MARKETING" and not getattr(organization, "sentdm_marketing_messages_disclosed", False):
+        add_missing_field(
+            missing_fields,
+            messages,
+            "sentdm_marketing_messages_disclosed",
+            "Marketing campaigns must explicitly disclose that subscribers are accepting marketing texts.",
+        )
+    if use_case in {"POLITICAL", "CHARITY"} and not getattr(organization, "sentdm_donation_solicitation_disclosed", False):
+        add_missing_field(
+            missing_fields,
+            messages,
+            "sentdm_donation_solicitation_disclosed",
+            "Political or charity campaigns must disclose whether donations will be solicited.",
+        )
 
 
 def get_organization_for_user(user):
@@ -333,6 +538,7 @@ def get_sentdm_compliance_readiness(user, profile_id=None):
         if not str(getattr(organization, field, "") or "").strip():
             missing_fields.append(field)
             messages[field] = message
+    validate_sentdm_structured_opt_in(organization, missing_fields, messages)
 
     use_case = str(getattr(organization, "sentdm_messaging_use_case_us", "") or "").upper()
     sample_messages = get_sentdm_sample_messages(organization)
@@ -377,6 +583,7 @@ def get_sentdm_profile_creation_readiness(user):
         if not str(getattr(organization, field, "") or "").strip():
             missing_fields.append(field)
             messages[field] = message
+    validate_sentdm_structured_opt_in(organization, missing_fields, messages)
 
     use_case = str(getattr(organization, "sentdm_messaging_use_case_us", "") or "").upper()
     sample_messages = get_sentdm_sample_messages(organization)
@@ -422,7 +629,7 @@ def build_10dlc_campaign_payload(organization, *, campaign_name=None, campaign_t
 
     campaign = {
         "name": campaign_name or f"{organization.name} Customer Messaging",
-        "description": organization.sentdm_messaging_use_case,
+        "description": clean_attr(organization, "sentdm_messaging_use_case"),
         "type": campaign_type or "App",
         "useCases": [
             {
@@ -430,12 +637,12 @@ def build_10dlc_campaign_payload(organization, *, campaign_name=None, campaign_t
                 "sampleMessages": get_sentdm_sample_messages(organization),
             }
         ],
-        "messageFlow": organization.sentdm_opt_in_description,
-        "privacyPolicyLink": organization.sentdm_privacy_policy_url,
-        "termsAndConditionsLink": organization.sentdm_terms_url,
-        "optinMessage": organization.sentdm_opt_in_confirmation_message,
-        "optoutMessage": organization.sentdm_opt_out_confirmation_message,
-        "helpMessage": organization.sentdm_help_response_message,
+        "messageFlow": build_sentdm_message_flow(organization),
+        "privacyPolicyLink": clean_attr(organization, "sentdm_privacy_policy_url"),
+        "termsAndConditionsLink": clean_attr(organization, "sentdm_terms_url"),
+        "optinMessage": clean_attr(organization, "sentdm_opt_in_confirmation_message"),
+        "optoutMessage": clean_attr(organization, "sentdm_opt_out_confirmation_message"),
+        "helpMessage": clean_attr(organization, "sentdm_help_response_message"),
         "optinKeywords": "YES, START, SUBSCRIBE",
         "optoutKeywords": "STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT",
         "helpKeywords": "HELP",
@@ -536,6 +743,13 @@ def normalize_message_status(response):
 WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS = 24
 FOLLOW_UP_MESSAGE_PURPOSE = "follow_up"
 REPLY_MESSAGE_PURPOSE = "reply"
+AUTOMATED_FOLLOW_UP_DAYS = (1, 3, 7, 14)
+AUTOMATED_FOLLOW_UP_TEMPLATES = {
+    1: "Hi [Name], this is [Business Name]. Just following up on your recent message. Are you still looking for help with this? Reply STOP to opt out.",
+    3: "[Business Name]: Checking in to see if you still need help with your request. Reply when you are ready, or reply STOP to opt out.",
+    7: "Hi [Name], this is [Business Name]. We are following up on your earlier message. Let us know if you would still like help. Reply STOP to opt out.",
+    14: "[Business Name]: This is our final follow-up about your request. If you still need help, reply here anytime. Reply STOP to opt out.",
+}
 
 
 def lead_has_active_whatsapp_window(lead, now=None):
@@ -551,6 +765,10 @@ def resolve_outbound_channel(*, profile=None, requested_channel=SentDMChannel.AU
         raise ValidationError({"channel": "Unsupported Sent.dm channel."})
 
     agent_whatsapp_active = is_agent_whatsapp_active(profile)
+
+    if purpose == FOLLOW_UP_MESSAGE_PURPOSE and channel in {SentDMChannel.AUTO, SentDMChannel.WHATSAPP}:
+        if not lead_has_active_whatsapp_window(lead, now=now):
+            return SentDMChannel.SMS
 
     if channel == SentDMChannel.AUTO and profile and not agent_whatsapp_active:
         return SentDMChannel.SMS
@@ -568,6 +786,77 @@ def resolve_outbound_channel(*, profile=None, requested_channel=SentDMChannel.AU
             return SentDMChannel.SMS
 
     return channel
+
+
+def get_follow_up_contact_name(lead):
+    if getattr(lead, "full_name", ""):
+        return lead.full_name
+    contact = getattr(lead, "contact", None)
+    if contact and contact.full_name:
+        return contact.full_name
+    return "there"
+
+
+def render_automated_follow_up_message(followup):
+    lead = followup.lead
+    business_name = getattr(followup.organization, "name", "") or "Chesera"
+    contact_name = get_follow_up_contact_name(lead)
+    template = AUTOMATED_FOLLOW_UP_TEMPLATES.get(followup.sequence_day, AUTOMATED_FOLLOW_UP_TEMPLATES[14])
+    return (
+        template.replace("[Name]", contact_name)
+        .replace("[Business Name]", business_name)
+        .strip()
+    )
+
+
+def normalize_follow_up_requested_channel(channel):
+    channel_value = (channel or SentDMChannel.SMS).strip().lower()
+    if channel_value == SentDMChannel.WHATSAPP:
+        return SentDMChannel.WHATSAPP
+    if channel_value == SentDMChannel.RCS:
+        return SentDMChannel.RCS
+    return SentDMChannel.SMS
+
+
+def schedule_automated_follow_ups_for_lead(lead, requested_channel="sms", base_time=None):
+    if not lead or lead.is_opted_out:
+        return []
+
+    base_time = base_time or lead.last_incoming_at or timezone.now()
+    requested_channel = normalize_follow_up_requested_channel(requested_channel)
+    created_followups = []
+
+    for sequence_day in AUTOMATED_FOLLOW_UP_DAYS:
+        followup, created = AutomatedFollowUp.objects.get_or_create(
+            lead=lead,
+            sequence_day=sequence_day,
+            defaults={
+                "organization": lead.organization,
+                "scheduled_time": base_time + timedelta(days=sequence_day),
+                "requested_channel": requested_channel,
+                "metadata": {"source": "sentdm_auto_capture"},
+            },
+        )
+        if created:
+            created_followups.append(followup)
+
+    if created_followups:
+        LeadActivity.objects.create(
+            lead=lead,
+            activity_type=LeadActivityType.FOLLOW_UP_SCHEDULED,
+            title="Automated follow-up sequence scheduled",
+            description="Chesera scheduled backend-controlled follow-ups for Day 1, Day 3, Day 7, and Day 14.",
+            metadata={
+                "followup_ids": [str(item.id) for item in created_followups],
+                "sequence_days": list(AUTOMATED_FOLLOW_UP_DAYS),
+                "requested_channel": requested_channel,
+            },
+        )
+        from notifications.services import NotificationTemplates, safe_notify
+
+        safe_notify(NotificationTemplates.automated_followups_scheduled, lead, created_followups)
+
+    return created_followups
 
 
 def send_sentdm_message(*, user, to, text, profile=None, channel="auto", idempotency_prefix="message", purpose="direct", lead=None):
@@ -620,6 +909,179 @@ def send_live_message(*, user, to, text, profile=None, channel="auto", purpose="
         purpose=purpose,
         lead=lead,
     )
+
+
+def get_active_conversation_for_lead(lead):
+    return Conversation.objects.filter(
+        organization=lead.organization,
+        lead=lead,
+        status=ConversationStatus.ACTIVE,
+    ).order_by("-last_message_at", "-created_at").first()
+
+
+def get_follow_up_profile(followup):
+    profile = getattr(followup.organization, "sentdm_profile", None)
+    if profile:
+        return profile
+    return SentDMProfile.objects.filter(organization=followup.organization).first()
+
+
+def fail_automated_follow_up(followup, error_message):
+    now = timezone.now()
+    followup.follow_up_status = AutomatedFollowUpStatus.FAILED
+    followup.failed_at = now
+    followup.error_message = str(error_message)
+    followup.save(update_fields=["follow_up_status", "failed_at", "error_message", "updated_at"])
+    LeadActivity.objects.create(
+        lead=followup.lead,
+        activity_type=LeadActivityType.FOLLOW_UP_FAILED,
+        title=f"Day {followup.sequence_day} follow-up failed",
+        description=str(error_message),
+        metadata={"followup_id": str(followup.id), "sequence_day": followup.sequence_day},
+    )
+    from notifications.services import NotificationTemplates, safe_notify
+
+    safe_notify(NotificationTemplates.automated_followup_failed, followup)
+    return {"sent": False, "followup_id": followup.id, "error": str(error_message)}
+
+
+def send_automated_follow_up(followup):
+    if followup.follow_up_status != AutomatedFollowUpStatus.SCHEDULED:
+        return {"sent": False, "followup_id": followup.id, "reason": "not_scheduled"}
+
+    lead = followup.lead
+    if lead.is_opted_out:
+        followup.follow_up_status = AutomatedFollowUpStatus.CANCELED
+        followup.error_message = "Lead is opted out."
+        followup.save(update_fields=["follow_up_status", "error_message", "updated_at"])
+        return {"sent": False, "followup_id": followup.id, "reason": "lead_opted_out"}
+
+    profile = get_follow_up_profile(followup)
+    if not profile or not profile.phone_number:
+        return fail_automated_follow_up(followup, "Chesera SMS/RCS number is not assigned for this lead's organization.")
+
+    conversation = get_active_conversation_for_lead(lead)
+    if not conversation:
+        return fail_automated_follow_up(followup, "No active conversation found for this lead.")
+
+    try:
+        channel = resolve_outbound_channel(
+            profile=profile,
+            requested_channel=followup.requested_channel or SentDMChannel.SMS,
+            purpose=FOLLOW_UP_MESSAGE_PURPOSE,
+            lead=lead,
+        )
+        text = render_automated_follow_up_message(followup)
+        response = SentDMClient().send_message(
+            to=lead.contact_number,
+            text=text,
+            profile_id=profile.profile_id,
+            channel=channel,
+            idempotency_key=f"chesera-followup-{followup.id}",
+        )
+    except (ImproperlyConfigured, SentDMClientError, ValidationError) as exc:
+        return fail_automated_follow_up(followup, exc)
+
+    now = timezone.now()
+    message_id = extract_first_message_id(response) or f"sentdm-followup-{followup.id}"
+    sentdm_status = normalize_message_status(response)
+    from_number = profile.whatsapp_phone_number if channel == SentDMChannel.WHATSAPP and profile.whatsapp_phone_number else profile.phone_number
+
+    SentDMMessage.objects.create(
+        organization=followup.organization,
+        profile=profile,
+        lead=lead,
+        conversation=conversation,
+        sent_message_id=message_id,
+        direction=SentDMMessageDirection.OUTBOUND,
+        channel=channel,
+        from_number=from_number,
+        to_number=lead.contact_number,
+        body=text,
+        status=sentdm_status,
+        sandbox=getattr(settings, "SENTDM_SANDBOX_MODE", True),
+        raw_response=response,
+    )
+    Message.objects.get_or_create(
+        provider_message_sid=message_id,
+        defaults={
+            "lead": lead,
+            "conversation": conversation,
+            "direction": MessageDirection.OUTBOUND,
+            "sender": from_number[:20],
+            "recipient": lead.contact_number[:20],
+            "content": text,
+            "provider_status": sentdm_status,
+            "status": MessageStatus.QUEUED if sentdm_status == SentDMMessageStatus.QUEUED else MessageStatus.SENT,
+            "metadata": {
+                "source": "sentdm",
+                "automated_followup": True,
+                "followup_id": str(followup.id),
+                "sequence_day": followup.sequence_day,
+                "channel": channel,
+                "requested_channel": followup.requested_channel,
+            },
+        },
+    )
+
+    followup.follow_up_status = AutomatedFollowUpStatus.SENT
+    followup.resolved_channel = channel
+    followup.message_body = text
+    followup.sentdm_message_id = message_id
+    followup.sent_at = now
+    followup.error_message = ""
+    followup.save(
+        update_fields=[
+            "follow_up_status",
+            "resolved_channel",
+            "message_body",
+            "sentdm_message_id",
+            "sent_at",
+            "error_message",
+            "updated_at",
+        ]
+    )
+
+    lead.last_message_at = now
+    lead.last_outgoing_at = now
+    lead.save(update_fields=["last_message_at", "last_outgoing_at", "updated_at"])
+    conversation.total_messages += 1
+    conversation.last_message_at = now
+    conversation.save(update_fields=["total_messages", "last_message_at", "updated_at"])
+
+    LeadActivity.objects.create(
+        lead=lead,
+        activity_type=LeadActivityType.FOLLOW_UP_SENT,
+        title=f"Day {followup.sequence_day} follow-up sent",
+        description="Chesera sent an automated backend-controlled follow-up message.",
+        metadata={
+            "followup_id": str(followup.id),
+            "sequence_day": followup.sequence_day,
+            "channel": channel,
+            "sentdm_message_id": message_id,
+        },
+    )
+    from notifications.services import NotificationTemplates, safe_notify
+
+    safe_notify(NotificationTemplates.automated_followup_sent, followup)
+    return {"sent": True, "followup_id": followup.id, "message_id": message_id, "channel": channel}
+
+
+def send_due_automated_follow_ups(limit=50):
+    due_followups = (
+        AutomatedFollowUp.objects.select_related("organization", "organization__owner", "lead", "lead__contact")
+        .filter(
+            follow_up_status=AutomatedFollowUpStatus.SCHEDULED,
+            scheduled_time__lte=timezone.now(),
+            lead__is_opted_out=False,
+        )
+        .order_by("scheduled_time")[:limit]
+    )
+
+    results = []
+    for followup in due_followups:
+        results.append(send_automated_follow_up(followup))
+    return {"processed": len(results), "results": results}
 
 
 WEBHOOK_VALUE_CONTAINERS = ("payload", "data", "message", "event", "contact", "sender", "recipient")
@@ -769,6 +1231,11 @@ def get_or_create_lead_and_conversation(profile, details):
         )
         from notifications.services import NotificationTemplates, safe_notify
         safe_notify(NotificationTemplates.new_lead_captured, lead, details.get("channel", "auto"))
+        schedule_automated_follow_ups_for_lead(
+            lead,
+            requested_channel=details.get("channel", SentDMChannel.SMS),
+            base_time=now,
+        )
     lead.last_message_at = now
     lead.last_incoming_at = now
     lead_update_fields = ["last_message_at", "last_incoming_at", "updated_at"]
@@ -1040,6 +1507,14 @@ def apply_opt_out(lead, keyword):
         updated_at=now,
     )
     FollowUpReminder.objects.filter(lead=lead, is_sent=False).update(is_sent=True, updated_at=now)
+    AutomatedFollowUp.objects.filter(
+        lead=lead,
+        follow_up_status=AutomatedFollowUpStatus.SCHEDULED,
+    ).update(
+        follow_up_status=AutomatedFollowUpStatus.CANCELED,
+        error_message=f"Lead opted out with {keyword}.",
+        updated_at=now,
+    )
 
 
 def process_sentdm_webhook_event(event):

@@ -47,6 +47,35 @@ class SentDMWhatsAppConnectSerializer(serializers.Serializer):
     access_token = serializers.CharField(write_only=True)
 
 
+class SentDMWhatsAppConfigSerializer(serializers.Serializer):
+    profile_id = serializers.CharField(allow_blank=True)
+    waba_id = serializers.CharField(allow_blank=True)
+    phone_number_id = serializers.CharField(allow_blank=True)
+    access_token = serializers.CharField(allow_blank=True)
+
+
+class SentDMWhatsAppConfigResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = SentDMWhatsAppConfigSerializer()
+
+
+class SentDMCurrentProfileResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = SentDMProfileSerializer()
+
+
+class SentDMProfileActionDataSerializer(serializers.Serializer):
+    profile = SentDMProfileSerializer(allow_null=True)
+    sentdm_response = serializers.JSONField()
+
+
+class SentDMProfileActionResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    sandbox = serializers.BooleanField(required=False)
+    data = SentDMProfileActionDataSerializer()
+
+
 class SentDMProfileCompleteSerializer(serializers.Serializer):
     profile_id = serializers.CharField(required=False, allow_blank=True)
 

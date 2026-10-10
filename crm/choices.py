@@ -29,3 +29,13 @@ class LeadActivityType(models.TextChoices):
     TAG_REMOVED = "tag_removed", "Tag Removed"
     HANDOFF = "handoff", "Handoff"
     NOTE_ADDED = "note_added", "Note Added"
+    FOLLOW_UP_SCHEDULED = "follow_up_scheduled", "Follow-up Scheduled"
+    FOLLOW_UP_SENT = "follow_up_sent", "Follow-up Sent"
+    FOLLOW_UP_FAILED = "follow_up_failed", "Follow-up Failed"
+
+
+class AutomatedFollowUpStatus(models.TextChoices):
+    SCHEDULED = "scheduled", "Scheduled"
+    SENT = "sent", "Sent"
+    FAILED = "failed", "Failed"
+    CANCELED = "canceled", "Canceled"

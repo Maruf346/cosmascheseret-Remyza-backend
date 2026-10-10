@@ -9,7 +9,7 @@ from rest_framework.viewsets import GenericViewSet
 from .serializers import (
     OrganizationSetupSerializer, UpdateBusinessSettingSerializer, OrganizationSerializer, UserNotificationSettingsSerializer, ProviderAccountSerializer, PhoneNumberSerializer,
 
-    UserNotificationSettings, NotificationToggleSerializer
+    UserNotificationSettings, NotificationToggleSerializer, BusinessOnboardingStatusResponseSerializer
 )
 from .choices import OnboardingStep
 from django.db import transaction
@@ -916,7 +916,7 @@ UserBusinessOnboardingAPIView = extend_schema_view(
         summary="Get business onboarding status",
         description="Returns the current onboarding step for the authenticated user's business profile.",
         responses={
-            200: OpenApiResponse(description="Onboarding status returned successfully."),
+            200: BusinessOnboardingStatusResponseSerializer,
             404: OpenApiResponse(description="Business profile not found."),
         },
     ),

@@ -268,6 +268,8 @@ crm/migrations/0004_alter_followupreminder_id.py
 - [x] Disable automatic welcome-message queueing from contact creation/import.
 - [x] Disable Sent.dm welcome-message Celery task/send flow.
 - [x] Keep stateless AI message structuring endpoint active.
+- [x] Add backend-owned welcome message preset API at `/api/v1/welcome-message/` with `professional`, `friendly`, and `casual` options.
+- [ ] Frontend/mobile: wire welcome message preset selection UI to `/api/v1/welcome-message/`.
 - [ ] Future product decision: only re-enable welcome/first-touch messages with controlled provider-approved templates and explicit consent rules.
 ## 19. NOTIFICATIONS
 
@@ -283,3 +285,18 @@ crm/migrations/0004_alter_followupreminder_id.py
 - [ ] Frontend/mobile: wire notification list, unread count, and read actions.
 - [ ] Admin dashboard: wire websocket connection and live notification UI.
 - [ ] Production: after deploy, confirm Daphne websocket handshake through Nginx for `/ws/admin/notifications/`.
+
+## 20. AUTOMATED FOLLOW-UP SEQUENCE
+
+- [x] Backend: keep manual `FollowUpReminder` model for future/internal reminder use.
+- [x] Backend: add separate `AutomatedFollowUp` model for customer-facing scheduled follow-up messages.
+- [x] Backend: schedule Day 1, Day 3, Day 7, and Day 14 follow-ups for new auto-captured inbound leads.
+- [x] Backend: use backend-controlled follow-up message text only; no agent-written custom follow-up text.
+- [x] Backend: include STOP opt-out language in follow-up messages.
+- [x] Backend: send due follow-ups through Sent.dm with `purpose="follow_up"`.
+- [x] Backend: route WhatsApp/auto follow-ups outside Meta's 24-hour customer-service window to SMS.
+- [x] Backend: create notifications when follow-ups are scheduled, sent, or fail.
+- [x] Backend: cancel pending automated follow-ups when the lead opts out with STOP/STOPALL/UNSUBSCRIBE/CANCEL/END/QUIT.
+- [ ] Production: ensure a Celery beat process is running so the every-minute follow-up task executes.
+- [ ] Production: run migrations for `crm.AutomatedFollowUp` and new notification type choices.
+- [ ] Frontend/mobile: display follow-up notifications in the existing notification UI.

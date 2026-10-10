@@ -13,6 +13,7 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     city = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=100, blank=True)
     country_code = models.CharField(max_length=10, blank=True)
+    timezone = models.CharField(max_length=64, blank=True)
     profile_picture = models.ImageField(upload_to="users/profile/", blank=True, null=True)
     user_type = models.CharField(max_length=20, choices=UserType.choices, default=UserType.CLIENT)
 

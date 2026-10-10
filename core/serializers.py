@@ -13,11 +13,23 @@ class BusinessTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
 
+class BusinessTypeListResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    count = serializers.IntegerField()
+    data = BusinessTypeSerializer(many=True)
+
+
 class IndustrySerializer(serializers.ModelSerializer):
     class Meta:
         model = Industry
         fields = ("id", "name", "slug", "description", "is_active", "sort_order")
         read_only_fields = ("id",)
+
+
+class IndustryListResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    count = serializers.IntegerField()
+    data = IndustrySerializer(many=True)
 
 
 

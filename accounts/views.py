@@ -1,7 +1,17 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+import base64
+import csv
+from datetime import timedelta
+from io import BytesIO
+
+import qrcode
+from django.db.models import Count, Q
+from django.http import HttpResponse
+from django.utils import timezone
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from rest_framework import response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
@@ -17,13 +27,28 @@ from sentdm.models import SentDMProfile
 from business.serializers import OrganizationSerializer, ProviderAccountSerializer
 from business.models import PhoneNumber
 from .serializers import (
+    AdminLoginResponseSerializer,
     AdminLoginSerializer,
+    AdminUserDeleteResponseSerializer,
+    AdminUserDetailResponseSerializer,
+    AdminUserExportQuerySerializer,
+    AdminUserListResponseSerializer,
+    AdminUserToggleActiveResponseSerializer,
+    AdminUserToggleActiveSerializer,
+    ClientSendOTPResponseSerializer,
     ClientSignupSerializer,
+    ClientSignupResponseSerializer,
     ClientSendOTPSerializer,
     ClientVerifyOTPSerializer,
+    ClientVerifyOTPResponseSerializer,
     CurrentUserSerializer,
     CurrentUserCheseraNumberSerializer,
+    CurrentUserCheseraNumberResponseSerializer,
+    CurrentUserPlanAndProgressResponseSerializer,
+    CurrentUserResponseSerializer,
+    CurrentUserUpdateResponseSerializer,
 )
+from common.choices import Status
 from django.db import transaction
 from notifications.services import NotificationTemplates, safe_notify
 
@@ -188,10 +213,447 @@ class CustomTokenVerifyView(TokenVerifyView):
 
 
 from subscription.services.purchase import SubscriptionValidationService
+from subscription.models import UserSubscription
 from subscription.serializers import UserSubscriptionSerializer
 from core.models import FreeTrailPhoneNumber, UserFreeTrailNumber, PhoneNumberStatus
 from django.db.models import Min
 from core.model_serializer import UserFreeTrailNumberSerializer
+
+
+class AdminUserPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class AdminUserManagementMixin:
+    export_columns = {
+        "user_id": "User ID",
+        "full_name": "Full Name",
+        "email": "Email Address",
+        "phone": "Phone Number",
+        "business_name": "Business Name",
+        "business_type": "Business Type",
+        "plan": "Plan",
+        "status": "Status",
+        "messages_sent_count": "Messages Sent",
+        "leads_count": "Leads Generated",
+        "joined_date": "Joined Date",
+        "last_active": "Last Active",
+        "chesera_number": "Chesera Number",
+    }
+    default_export_columns = tuple(export_columns.keys())
+
+    def get_base_queryset(self):
+        return (
+            User.objects
+            .filter(is_staff=False, is_superuser=False)
+            .select_related("organization", "organization__business_type")
+            .annotate(
+                leads_count_value=Count("organization__leads", distinct=True),
+                messages_sent_count_value=Count(
+                    "organization__sentdm_messages",
+                    filter=Q(organization__sentdm_messages__direction="outbound"),
+                    distinct=True,
+                ),
+            )
+            .order_by("-created_at")
+        )
+
+    def get_active_subscription(self, user):
+        return (
+            UserSubscription.objects
+            .filter(user=user)
+            .order_by("-is_subscription_active", "-expiry_date", "-created_at")
+            .first()
+        )
+
+    def get_chesera_number(self, user):
+        organization = getattr(user, "organization", None)
+        profile = getattr(organization, "sentdm_profile", None) if organization else None
+        if profile and profile.phone_number:
+            return profile.phone_number
+        user_profile = getattr(user, "sentdm_profile", None)
+        if user_profile and user_profile.phone_number:
+            return user_profile.phone_number
+        return ""
+
+    def get_plan_price(self, subscription):
+        if not subscription:
+            return ""
+        amount = subscription.amount
+        currency = subscription.currency_code or "USD"
+        if amount is None:
+            return "$84/month" if subscription.is_active else ""
+        symbol = "$" if currency.upper() == "USD" else f"{currency.upper()} "
+        return f"{symbol}{amount}/month"
+
+    def get_response_rate(self, user):
+        organization = getattr(user, "organization", None)
+        if not organization:
+            return 0.0
+        leads = organization.leads.all()
+        total = leads.count()
+        if total == 0:
+            return 0.0
+        responded = leads.filter(last_outgoing_at__isnull=False).count()
+        return round((responded / total) * 100, 2)
+
+    def get_days_active(self, user):
+        return max((timezone.now() - user.created_at).days, 0)
+
+    def humanize_datetime(self, value):
+        if not value:
+            return ""
+        delta = timezone.now() - value
+        seconds = max(int(delta.total_seconds()), 0)
+        if seconds < 60:
+            return "just now"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes}m ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours}h ago"
+        days = hours // 24
+        if days < 7:
+            return f"{days} days ago"
+        weeks = days // 7
+        if weeks < 5:
+            return f"{weeks} weeks ago" if weeks > 1 else "1 week ago"
+        months = days // 30
+        return f"{months} months ago" if months > 1 else "1 month ago"
+
+    def get_user_plan(self, user):
+        subscription = self.get_active_subscription(user)
+        if subscription and subscription.is_free_trial:
+            return "trial"
+        if subscription and subscription.is_active:
+            return "pro"
+        return "free"
+
+    def is_trial_user(self, user):
+        subscription = self.get_active_subscription(user)
+        if not subscription:
+            return False
+        return subscription.is_free_trial or (subscription.plan_type or "").lower() in {"trial", "free_trial", "free trail"}
+
+    def get_filtered_queryset(self, request):
+        queryset = self.get_base_queryset()
+        search = (request.query_params.get("search") or "").strip()
+        plan = (request.query_params.get("plan") or "").strip().lower()
+        is_active = request.query_params.get("is_active")
+
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search)
+                | Q(phone_number__icontains=search)
+                | Q(email__icontains=search)
+                | Q(organization__name__icontains=search)
+            )
+
+        if is_active is not None and str(is_active).lower() in {"true", "false"}:
+            if str(is_active).lower() == "true":
+                queryset = queryset.filter(status=Status.ACTIVE)
+            else:
+                queryset = queryset.exclude(status=Status.ACTIVE)
+
+        if plan:
+            if plan in {"free", "trial"}:
+                user_ids = [user.id for user in queryset if self.get_user_plan(user).lower() == plan]
+                queryset = queryset.filter(id__in=user_ids)
+            elif plan == "pro":
+                user_ids = [user.id for user in queryset if self.get_user_plan(user).lower() == "pro"]
+                queryset = queryset.filter(id__in=user_ids)
+            else:
+                queryset = queryset.filter(subscriptions__is_subscription_active=True, subscriptions__plan_type__iexact=plan).distinct()
+
+        return queryset
+
+    def get_summary(self, queryset):
+        users = list(queryset)
+        return {
+            "total_users": len(users),
+            "total_active": sum(1 for user in users if user.status == Status.ACTIVE),
+            "total_blocked": sum(1 for user in users if user.status != Status.ACTIVE),
+            "total_on_trial": sum(1 for user in users if self.is_trial_user(user)),
+        }
+
+    def build_profile_picture_url(self, user, request):
+        if not user.profile_picture:
+            return None
+        url = user.profile_picture.url
+        return request.build_absolute_uri(url) if request else url
+
+    def serialize_user_list_item(self, user, request):
+        organization = getattr(user, "organization", None)
+        return {
+            "id": user.id,
+            "user_id": user.id,
+            "user_name": user.full_name,
+            "business_name": organization.name if organization else None,
+            "profile_pic": self.build_profile_picture_url(user, request),
+            "email": user.email,
+            "phone": user.phone_number,
+            "plan": self.get_user_plan(user),
+            "messages_sent_count": getattr(user, "messages_sent_count_value", 0) or 0,
+            "leads_count": getattr(user, "leads_count_value", 0) or 0,
+            "is_active": user.status == Status.ACTIVE,
+            "joined_date": user.created_at,
+        }
+
+    def serialize_subscription(self, user):
+        subscription = self.get_active_subscription(user)
+        if not subscription:
+            return None
+        return {
+            "id": subscription.id,
+            "plan": self.get_user_plan(user),
+            "price": self.get_plan_price(subscription),
+            "plan_type": subscription.plan_type,
+            "product_id": subscription.product_id,
+            "status": subscription.status,
+            "is_active": subscription.is_active,
+            "medium": subscription.medium,
+            "start_date": subscription.start_date,
+            "next_renewal": subscription.expiry_date or subscription.expires_at,
+            "purchase_date": subscription.purchase_date,
+            "expiry_date": subscription.expiry_date,
+        }
+
+    def serialize_user_detail(self, user, request):
+        organization = getattr(user, "organization", None)
+        business_type = organization.business_type.name if organization and organization.business_type else ""
+        timezone_value = user.timezone or (getattr(getattr(organization, "settings", None), "timezone", "") if organization else "")
+        return {
+            **self.serialize_user_list_item(user, request),
+            "full_name": user.full_name,
+            "phone_number": user.phone_number,
+            "city": user.city,
+            "country": user.country,
+            "country_code": user.country_code,
+            "timezone": timezone_value,
+            "profile_picture": self.build_profile_picture_url(user, request),
+            "user_type": user.user_type,
+            "is_phone_verified": user.is_phone_verified,
+            "status": user.status,
+            "days_active": self.get_days_active(user),
+            "response_rate": self.get_response_rate(user),
+            "business_type": business_type,
+            "chesera_number": self.get_chesera_number(user),
+            "last_active": self.humanize_datetime(user.last_activity_at),
+            "last_activity_at": user.last_activity_at,
+            "organization": {
+                "id": organization.id,
+                "name": organization.name,
+                "email": organization.email,
+                "website": organization.website,
+                "country": organization.country,
+                "business_type": business_type,
+                "is_onboarding_completed": organization.is_onboarding_completed,
+            } if organization else None,
+            "subscription": self.serialize_subscription(user),
+        }
+
+    def get_export_queryset(self, request):
+        queryset = self.get_filtered_queryset(request)
+        date_range = (request.query_params.get("date_range") or "all_time").strip().lower()
+        now = timezone.now()
+        if date_range == "last_week":
+            queryset = queryset.filter(created_at__gte=now - timedelta(days=7))
+        elif date_range == "last_month":
+            queryset = queryset.filter(created_at__gte=now - timedelta(days=30))
+        return queryset
+
+    def get_export_columns(self, request):
+        raw_columns = (request.query_params.get("columns") or "").strip()
+        if not raw_columns:
+            return list(self.default_export_columns)
+        requested = [column.strip() for column in raw_columns.split(",") if column.strip()]
+        valid = [column for column in requested if column in self.export_columns]
+        return valid or list(self.default_export_columns)
+
+    def build_export_row(self, user, request):
+        list_item = self.serialize_user_list_item(user, request)
+        detail = self.serialize_user_detail(user, request)
+        return {
+            "user_id": list_item["user_id"],
+            "full_name": detail["full_name"],
+            "email": list_item["email"],
+            "phone": list_item["phone"],
+            "business_name": list_item["business_name"],
+            "business_type": detail["business_type"],
+            "plan": list_item["plan"],
+            "status": detail["status"],
+            "messages_sent_count": list_item["messages_sent_count"],
+            "leads_count": list_item["leads_count"],
+            "joined_date": list_item["joined_date"],
+            "last_active": detail["last_active"],
+            "chesera_number": detail["chesera_number"],
+        }
+
+    def format_export_value(self, value):
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        if value is None:
+            return ""
+        return value
+
+
+class AdminUserListAPIView(AdminUserManagementMixin, APIView):
+    permission_classes = [IsAdminUser]
+    pagination_class = AdminUserPagination
+
+    @extend_schema(
+        tags=["Admin - Users"],
+        summary="List users",
+        description="Returns a paginated admin user list with summary counts, plan/status filters, and search by name, phone, email, or business.",
+        parameters=[
+            OpenApiParameter("search", str, required=False, description="Search by user name, phone, email, or business name."),
+            OpenApiParameter("plan", str, required=False, description="Filter by plan, for example `free`, `trial`, or `pro`."),
+            OpenApiParameter("is_active", bool, required=False, description="Filter active users (`true`) or blocked/inactive users (`false`)."),
+            OpenApiParameter("page", int, required=False, description="Page number."),
+            OpenApiParameter("page_size", int, required=False, description="Items per page, up to 100."),
+        ],
+        responses={200: AdminUserListResponseSerializer},
+    )
+    def get(self, request):
+        queryset = self.get_filtered_queryset(request)
+        summary = self.get_summary(queryset)
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        results = [self.serialize_user_list_item(user, request) for user in page]
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "summary": summary,
+                    "count": paginator.page.paginator.count,
+                    "next": paginator.get_next_link(),
+                    "previous": paginator.get_previous_link(),
+                    "results": results,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminUserExportCSVAPIView(AdminUserManagementMixin, APIView):
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        tags=["Admin - Users"],
+        summary="Export users CSV",
+        description="Exports the admin user list as CSV or XLSX using the same search and filters as the list endpoint. Supports delimiter, date range, and selected columns.",
+        parameters=[
+            OpenApiParameter("search", str, required=False),
+            OpenApiParameter("plan", str, required=False),
+            OpenApiParameter("is_active", bool, required=False),
+            OpenApiParameter("format", str, required=False, description="Export format: `csv` or `xlsx`."),
+            OpenApiParameter("delimiter", str, required=False, description="CSV delimiter: `comma`, `semicolon`, or `tab`."),
+            OpenApiParameter("date_range", str, required=False, description="Joined-date range: `all_time`, `last_week`, or `last_month`."),
+            OpenApiParameter("columns", str, required=False, description="Comma-separated columns to include. Options: user_id, full_name, email, phone, business_name, business_type, plan, status, messages_sent_count, leads_count, joined_date, last_active, chesera_number."),
+        ],
+        responses={200: OpenApiResponse(description="CSV or XLSX file response.")},
+    )
+    def get(self, request):
+        serializer = AdminUserExportQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        queryset = self.get_export_queryset(request)
+        columns = self.get_export_columns(request)
+        rows = [self.build_export_row(user, request) for user in queryset]
+
+        if serializer.validated_data["format"] == "xlsx":
+            return self.build_xlsx_response(columns, rows)
+
+        delimiter_map = {"comma": ",", "semicolon": ";", "tab": "\t"}
+        delimiter = delimiter_map[serializer.validated_data["delimiter"]]
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="chesera-users.csv"'
+        writer = csv.writer(response, delimiter=delimiter)
+        writer.writerow([self.export_columns[column] for column in columns])
+        for row in rows:
+            writer.writerow([self.format_export_value(row[column]) for column in columns])
+        return response
+
+    def build_xlsx_response(self, columns, rows):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Users"
+        worksheet.append([self.export_columns[column] for column in columns])
+        for row in rows:
+            worksheet.append([self.format_export_value(row[column]) for column in columns])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="chesera-users.xlsx"'
+        return response
+
+
+class AdminUserDetailAPIView(AdminUserManagementMixin, APIView):
+    permission_classes = [IsAdminUser]
+
+    def get_object(self, user_id):
+        return self.get_base_queryset().get(pk=user_id)
+
+    @extend_schema(
+        tags=["Admin - Users"],
+        summary="Get user details",
+        description="Returns full admin-facing user details, business profile summary, subscription summary, lead count, and sent-message count.",
+        responses={200: AdminUserDetailResponseSerializer, 404: OpenApiResponse(description="User not found.")},
+    )
+    def get(self, request, user_id):
+        try:
+            user = self.get_object(user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"success": True, "data": self.serialize_user_detail(user, request)}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        tags=["Admin - Users"],
+        summary="Toggle user active status",
+        description="Activates or blocks a user by mapping `is_active=true` to `status=ACTIVE` and `is_active=false` to `status=INACTIVE`.",
+        request=AdminUserToggleActiveSerializer,
+        responses={200: AdminUserToggleActiveResponseSerializer, 400: OpenApiResponse(description="Invalid payload."), 404: OpenApiResponse(description="User not found.")},
+    )
+    def patch(self, request, user_id):
+        serializer = AdminUserToggleActiveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            user = self.get_object(user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        user.status = Status.ACTIVE if serializer.validated_data["is_active"] else Status.INACTIVE
+        user.save(update_fields=["status", "updated_at"])
+        return Response(
+            {
+                "success": True,
+                "message": "User active status updated successfully.",
+                "data": self.serialize_user_detail(user, request),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        tags=["Admin - Users"],
+        summary="Delete user",
+        description="Deletes a user account.",
+        responses={200: AdminUserDeleteResponseSerializer, 404: OpenApiResponse(description="User not found.")},
+    )
+    def delete(self, request, user_id):
+        try:
+            user = self.get_object(user_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        user.delete()
+        return Response({"success": True, "message": "User deleted successfully."}, status=status.HTTP_200_OK)
 
 class CurrentUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -377,27 +839,41 @@ class CurrentUserCheseraNumberAPIView(APIView):
             return "Messaging activation needs attention. Number assignment could not be completed automatically."
         return "Messaging activation is in progress. Number assignment may take additional time if local inventory is unavailable."
 
+    def build_qr_code_base64(self, payload):
+        image = qrcode.make(payload)
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+
     @extend_schema(
         tags=["User Chesera Number"],
         summary="Get user's Chesera number",
         description="Returns the authenticated user's dedicated Chesera SMS/RCS number assigned through Sent.dm. Free or pending users receive `assigned=false` with the current activation message.",
-        responses={200: CurrentUserCheseraNumberSerializer},
+        responses={200: CurrentUserCheseraNumberResponseSerializer},
     )
     def get(self, request):
         profile = self.get_profile(request.user)
         number_assignment_status = self.get_number_assignment_status(profile)
+        phone_number = profile.phone_number if profile and profile.phone_number else None
+        qr_payload = f"sms:{phone_number}" if phone_number else None
         data = {
-            "assigned": bool(profile and profile.phone_number),
-            "phone_number": profile.phone_number if profile and profile.phone_number else None,
+            "assigned": bool(phone_number),
+            "phone_number": phone_number,
             "status": number_assignment_status,
             "number_assignment_status": number_assignment_status,
             "message": self.get_number_assignment_message(number_assignment_status),
             "provider": "sentdm",
             "profile_id": profile.profile_id if profile else None,
             "profile_status": profile.status if profile else None,
-            "sms_rcs_active": bool(profile and profile.phone_number and profile.status in ("approved", "active")),
+            "sms_rcs_active": bool(phone_number and profile.status in ("approved", "active")),
+            "qr_payload": qr_payload,
+            "qr_code_base64": self.build_qr_code_base64(qr_payload) if qr_payload else None,
         }
-        return Response({"success": True, "data": data}, status=status.HTTP_200_OK)
+        response = Response({"success": True, "data": data}, status=status.HTTP_200_OK)
+        if phone_number:
+            response["Cache-Control"] = "private, max-age=3600"
+        return response
 
 class CurrentUserPlanAndProgressAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -700,8 +1176,8 @@ ClientSignupAPIView = extend_schema_view(
         description="Creates or updates an unverified client user with full name, email, phone number, city, country, and optional country code, then sends a registration OTP. JWT tokens are returned after OTP verification.",
         request=ClientSignupSerializer,
         responses={
-            201: OpenApiResponse(description="New user created and signup OTP session started."),
-            200: OpenApiResponse(description="Existing unverified user updated and signup OTP resent."),
+            201: ClientSignupResponseSerializer,
+            200: ClientSignupResponseSerializer,
             400: OpenApiResponse(description="Invalid signup payload or verified user already exists."),
         },
     ),
@@ -713,7 +1189,7 @@ ClientSendOTPAPIView = extend_schema_view(
         description="Creates or finds a client user by phone number and starts an OTP login session.",
         request=ClientSendOTPSerializer,
         responses={
-            200: OpenApiResponse(description="OTP session created successfully."),
+            200: ClientSendOTPResponseSerializer,
             400: OpenApiResponse(description="Invalid phone number or request payload."),
         },
     ),
@@ -726,7 +1202,7 @@ ClientVerifyOTPAPIView = extend_schema_view(
         description="Verifies the latest unused OTP for the phone number and returns JWT access and refresh tokens.",
         request=ClientVerifyOTPSerializer,
         responses={
-            200: OpenApiResponse(description="OTP verified. JWT tokens and user profile returned."),
+            200: ClientVerifyOTPResponseSerializer,
             400: OpenApiResponse(description="OTP not found, expired, already used, or invalid."),
         },
     ),
@@ -739,7 +1215,7 @@ AdminLoginAPIView = extend_schema_view(
         description="Authenticates a staff/admin user with phone number and password. Returns JWT access and refresh tokens.",
         request=AdminLoginSerializer,
         responses={
-            200: OpenApiResponse(description="Admin authenticated successfully."),
+            200: AdminLoginResponseSerializer,
             400: OpenApiResponse(description="Invalid credentials or user is not staff."),
         },
     ),
@@ -776,14 +1252,14 @@ CurrentUserAPIView = extend_schema_view(
         tags=["User Account"],
         summary="Get current user",
         description="Returns the authenticated user's profile, subscription state, and related onboarding metadata.",
-        responses={200: CurrentUserSerializer, 401: OpenApiResponse(description="Authentication required.")},
+        responses={200: CurrentUserResponseSerializer, 401: OpenApiResponse(description="Authentication required.")},
     ),
     patch=extend_schema(
         tags=["User Account"],
         summary="Update current user",
         description="Partially updates the authenticated user's profile fields.",
         request=CurrentUserSerializer,
-        responses={200: CurrentUserSerializer, 400: OpenApiResponse(description="Invalid profile data.")},
+        responses={200: CurrentUserUpdateResponseSerializer, 400: OpenApiResponse(description="Invalid profile data.")},
     ),
     delete=extend_schema(
         tags=["User Account"],
@@ -799,7 +1275,7 @@ CurrentUserPlanAndProgressAPIView = extend_schema_view(
         summary="Get plan and onboarding progress",
         description="Returns the paid subscription status and current setup progress for the authenticated user.",
         responses={
-            200: OpenApiResponse(description="Plan and progress returned successfully."),
+            200: CurrentUserPlanAndProgressResponseSerializer,
             404: OpenApiResponse(description="No active paid subscription found."),
         },
     ),

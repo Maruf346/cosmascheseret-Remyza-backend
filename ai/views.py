@@ -5,7 +5,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .ai_service import AIService
-from .serializers import StructuredMessageRequestSerializer, StructuredMessageResponseSerializer
+from .serializers import (
+    StructuredMessageAPIResponseSerializer,
+    StructuredMessageRequestSerializer,
+)
 
 
 class StructuredMessageAPIView(APIView):
@@ -16,7 +19,7 @@ class StructuredMessageAPIView(APIView):
         summary="Structure message by tone",
         description="Stateless AI helper. Accepts a tone and raw message, then returns a structured message without reading or writing database records.",
         request=StructuredMessageRequestSerializer,
-        responses={200: StructuredMessageResponseSerializer, 400: OpenApiResponse(description="Invalid tone or message.")},
+        responses={200: StructuredMessageAPIResponseSerializer, 400: OpenApiResponse(description="Invalid tone or message.")},
     )
     def post(self, request):
         serializer = StructuredMessageRequestSerializer(data=request.data)

@@ -182,6 +182,13 @@ class LeadListResponseSerializer(serializers.Serializer):
     results = LeadSerializer(many=True)
 
 
+class ContactPaginatedResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = ContactSerializer(many=True)
+
+
 class LeadInboxSerializer(LeadSerializer):
     last_message = serializers.SerializerMethodField()
     unread_messages = serializers.SerializerMethodField()
@@ -214,6 +221,20 @@ class LeadDetailSerializer(LeadSerializer):
     def get_conversation(self, obj):
         messages = obj.messages.select_related("conversation").order_by("created_at")
         return LeadMessageSerializer(messages, many=True).data
+
+
+class LeadInboxPaginatedResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = LeadInboxSerializer(many=True)
+
+
+class LeadMessagePaginatedResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = LeadMessageSerializer(many=True)
 
 
 class ContactCSVUploadSerializer(serializers.Serializer):

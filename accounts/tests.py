@@ -10,11 +10,23 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from accounts.choices import OTPPurpose
 from accounts.models import OTPVerification, User
-from accounts.views import ClientSignupAPIView, ClientVerifyOTPAPIView, CurrentUserAPIView, CurrentUserCheseraNumberAPIView, CurrentUserPlanAndProgressAPIView
+from accounts.views import (
+    AdminUserDetailAPIView,
+    AdminUserExportCSVAPIView,
+    AdminUserListAPIView,
+    ClientSignupAPIView,
+    ClientVerifyOTPAPIView,
+    CurrentUserAPIView,
+    CurrentUserCheseraNumberAPIView,
+    CurrentUserPlanAndProgressAPIView,
+)
 from business.models import Organization
+from common.choices import Status
+from core.models import BusinessType
+from crm.models import Lead
 from subscription.models import UserSubscription
-from sentdm.choices import SentDMCampaignStatus, SentDMProfileStatus, SentDMWhatsAppConnectionSource, SentDMWhatsAppConnectionStatus
-from sentdm.models import SentDMCampaign, SentDMProfile
+from sentdm.choices import SentDMCampaignStatus, SentDMMessageDirection, SentDMProfileStatus, SentDMWhatsAppConnectionSource, SentDMWhatsAppConnectionStatus
+from sentdm.models import SentDMCampaign, SentDMMessage, SentDMProfile
 
 
 
@@ -133,6 +145,7 @@ class CurrentUserAPIViewTests(TestCase):
                 "city": "Dallas",
                 "country": "United States",
                 "country_code": "+1",
+                "timezone": "America/Chicago",
             },
             format="json",
         )
@@ -149,9 +162,24 @@ class CurrentUserAPIViewTests(TestCase):
         self.assertEqual(self.user.email, "updated@example.com")
         self.assertEqual(self.user.full_name, "Updated Name")
         self.assertEqual(self.user.city, "Dallas")
+        self.assertEqual(self.user.timezone, "America/Chicago")
         self.assertEqual(response.data["data"]["phone_number"], "+15551112222")
         self.assertEqual(response.data["data"]["user_type"], "CLIENT")
         self.assertTrue(response.data["data"]["is_phone_verified"])
+        self.assertEqual(response.data["data"]["timezone"], "America/Chicago")
+
+    def test_patch_rejects_invalid_timezone(self):
+        request = self.factory.patch(
+            "/api/v1/me/",
+            {"timezone": "Not/A_Timezone"},
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = CurrentUserAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("timezone", response.data)
 
 class CurrentUserCheseraNumberAPIViewTests(TestCase):
     def setUp(self):
@@ -174,6 +202,8 @@ class CurrentUserCheseraNumberAPIViewTests(TestCase):
         self.assertEqual(response.data["data"]["number_assignment_status"], "pending")
         self.assertEqual(response.data["data"]["provider"], "sentdm")
         self.assertFalse(response.data["data"]["sms_rcs_active"])
+        self.assertIsNone(response.data["data"]["qr_payload"])
+        self.assertIsNone(response.data["data"]["qr_code_base64"])
 
     def test_returns_assigned_chesera_number_from_sentdm_profile(self):
         SentDMProfile.objects.create(
@@ -194,6 +224,9 @@ class CurrentUserCheseraNumberAPIViewTests(TestCase):
         self.assertEqual(response.data["data"]["profile_id"], "profile_number_assigned")
         self.assertEqual(response.data["data"]["profile_status"], SentDMProfileStatus.APPROVED)
         self.assertTrue(response.data["data"]["sms_rcs_active"])
+        self.assertEqual(response.data["data"]["qr_payload"], "sms:+15559990000")
+        self.assertTrue(response.data["data"]["qr_code_base64"].startswith("data:image/png;base64,"))
+        self.assertEqual(response["Cache-Control"], "private, max-age=3600")
 
 class CurrentUserPlanAndProgressAPIViewTests(TestCase):
     def setUp(self):
@@ -381,3 +414,151 @@ class CurrentUserPlanAndProgressAPIViewTests(TestCase):
         self.assertEqual(response.data["data"]["whatsapp"]["source"], "inherited")
         self.assertFalse(response.data["data"]["whatsapp"]["active"])
         self.assertEqual(response.data["data"]["sentdm_profile"]["is_agent_whatsapp_active"], False)
+
+
+class AdminUserManagementAPIViewTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.admin = User.objects.create(
+            phone_number="+15550000000",
+            email="admin@example.com",
+            full_name="Admin User",
+            is_staff=True,
+        )
+        self.user = User.objects.create(
+            phone_number="+15550000001",
+            email="agent@example.com",
+            full_name="Agent One",
+            status=Status.ACTIVE,
+        )
+        self.blocked_user = User.objects.create(
+            phone_number="+15550000002",
+            email="blocked@example.com",
+            full_name="Blocked Agent",
+            status=Status.INACTIVE,
+        )
+        self.organization = Organization.objects.create(
+            owner=self.user,
+            name="Agent One Realty",
+            email="team@agentone.example",
+        )
+        self.business_type = BusinessType.objects.create(name="Real Estate", slug="real-estate")
+        self.organization.business_type = self.business_type
+        self.organization.save(update_fields=["business_type", "updated_at"])
+        self.user.last_activity_at = timezone.now() - timedelta(hours=2)
+        self.user.save(update_fields=["last_activity_at", "updated_at"])
+        UserSubscription.objects.create(
+            user=self.user,
+            organization=self.organization,
+            product_id="chesera.pro",
+            plan_type="pro",
+            medium="apple",
+            transaction_id="txn-admin-user-list",
+            is_subscription_active=True,
+            expiry_date=timezone.now() + timedelta(days=30),
+        )
+        Lead.objects.create(
+            organization=self.organization,
+            contact_number="+15551112222",
+            full_name="Lead One",
+        )
+        profile = SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_admin_user_list",
+            name="Admin User List Profile",
+            phone_number="+15559990000",
+        )
+        SentDMMessage.objects.create(
+            organization=self.organization,
+            profile=profile,
+            sent_message_id="msg_admin_user_list",
+            direction=SentDMMessageDirection.OUTBOUND,
+            to_number="+15551112222",
+            body="Hello",
+        )
+
+    def test_admin_user_list_returns_summary_paginated_rows_and_counts(self):
+        request = self.factory.get("/api/v1/admin/users/?page_size=10")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminUserListAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["summary"]["total_users"], 2)
+        self.assertEqual(response.data["data"]["summary"]["total_active"], 1)
+        self.assertEqual(response.data["data"]["summary"]["total_blocked"], 1)
+        self.assertEqual(response.data["data"]["count"], 2)
+        self.assertEqual(len(response.data["data"]["results"]), 2)
+        rows_by_id = {row["user_id"]: row for row in response.data["data"]["results"]}
+        row = rows_by_id[self.user.id]
+        self.assertEqual(row["business_name"], "Agent One Realty")
+        self.assertEqual(row["messages_sent_count"], 1)
+        self.assertEqual(row["leads_count"], 1)
+        self.assertEqual(row["plan"], "pro")
+
+    def test_admin_user_list_filters_search_and_active_status(self):
+        request = self.factory.get("/api/v1/admin/users/?search=Agent One Realty&is_active=true")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminUserListAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["count"], 1)
+        self.assertEqual(response.data["data"]["results"][0]["user_id"], self.user.id)
+
+    def test_admin_user_detail_returns_subscription_and_organization(self):
+        request = self.factory.get(f"/api/v1/admin/users/{self.user.id}/")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminUserDetailAPIView.as_view()(request, user_id=self.user.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["organization"]["name"], "Agent One Realty")
+        self.assertEqual(response.data["data"]["business_type"], "Real Estate")
+        self.assertEqual(response.data["data"]["chesera_number"], "+15559990000")
+        self.assertEqual(response.data["data"]["last_active"], "2h ago")
+        self.assertGreaterEqual(response.data["data"]["days_active"], 0)
+        self.assertEqual(response.data["data"]["response_rate"], 0.0)
+        self.assertEqual(response.data["data"]["subscription"]["plan"], "pro")
+        self.assertEqual(response.data["data"]["subscription"]["price"], "$84/month")
+        self.assertEqual(response.data["data"]["messages_sent_count"], 1)
+
+    def test_admin_can_toggle_user_active_status(self):
+        request = self.factory.patch(
+            f"/api/v1/admin/users/{self.user.id}/",
+            {"is_active": False},
+            format="json",
+        )
+        force_authenticate(request, user=self.admin)
+
+        response = AdminUserDetailAPIView.as_view()(request, user_id=self.user.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.status, Status.INACTIVE)
+        self.assertFalse(response.data["data"]["is_active"])
+
+    def test_admin_can_delete_user(self):
+        request = self.factory.delete(f"/api/v1/admin/users/{self.blocked_user.id}/")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminUserDetailAPIView.as_view()(request, user_id=self.blocked_user.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(id=self.blocked_user.id).exists())
+
+    def test_admin_can_export_users_csv_with_selected_columns_and_delimiter(self):
+        request = self.factory.get(
+            "/api/v1/admin/users/export/?delimiter=semicolon&columns=user_id,business_name,business_type,chesera_number"
+        )
+        force_authenticate(request, user=self.admin)
+
+        response = AdminUserExportCSVAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("chesera-users.csv", response["Content-Disposition"])
+        content = response.content.decode()
+        self.assertIn("User ID;Business Name;Business Type;Chesera Number", content)
+        self.assertIn("Agent One Realty;Real Estate;+15559990000", content)

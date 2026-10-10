@@ -1,11 +1,18 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import mixins
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
 from accounts.choices import UserType
 from .models import UserSubscription
-from .serializers import UserSubscriptionSerializer
+from .serializers import UserSubscriptionListResponseSerializer, UserSubscriptionSerializer
+
+
+class UserSubscriptionPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 class UserSubscriptionViewSet(
@@ -16,6 +23,7 @@ class UserSubscriptionViewSet(
 ):
     serializer_class = UserSubscriptionSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = UserSubscriptionPagination
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False) or self.request.user.is_anonymous:
@@ -44,7 +52,11 @@ UserSubscriptionViewSet = extend_schema_view(
             "Returns Apple/Google subscription payment records. Admin users see all users; "
             "client users see only their own records."
         ),
-        responses={200: UserSubscriptionSerializer(many=True)},
+        parameters=[
+            OpenApiParameter("page", int, required=False, description="Page number."),
+            OpenApiParameter("page_size", int, required=False, description="Items per page, up to 100."),
+        ],
+        responses={200: UserSubscriptionListResponseSerializer},
     ),
     retrieve=extend_schema(
         tags=["User Subscriptions"],

@@ -5,7 +5,9 @@ from .models import BusinessType, Industry
 from .permissions import AdminWritePermission
 from .serializers import (
     BusinessTypeSerializer,
+    BusinessTypeListResponseSerializer,
     IndustrySerializer,
+    IndustryListResponseSerializer,
 )
 
 
@@ -520,7 +522,7 @@ BusinessTypeViewSet = extend_schema_view(
         tags=["Reference Data"],
         summary="List business types",
         description="Returns active business type options used during business profile setup.",
-        responses={200: BusinessTypeSerializer(many=True)},
+        responses={200: BusinessTypeListResponseSerializer},
     ),
     retrieve=extend_schema(
         tags=["Reference Data"],
@@ -562,7 +564,7 @@ IndustryViewSet = extend_schema_view(
         tags=["Reference Data"],
         summary="List industries",
         description="Returns active industry options used during business profile setup.",
-        responses={200: IndustrySerializer(many=True)},
+        responses={200: IndustryListResponseSerializer},
     ),
     retrieve=extend_schema(
         tags=["Reference Data"],

@@ -17,14 +17,15 @@ from business.models import Organization, PhoneNumber
 from communications.choices import ConversationStatus
 from crm.choices import LeadStage
 from communications.models import Conversation, Message
-from crm.models import Contact, FollowUpReminder, Lead
+from crm.models import AutomatedFollowUp, Contact, FollowUpReminder, Lead
+from notifications.models import Notification, NotificationType
 from subscription.models import UserSubscription
 
 from .choices import SentDMChannel, SentDMWhatsAppConnectionSource, SentDMWhatsAppConnectionStatus
 from .client import SentDMClient, SentDMClientError
 from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
-from .services import build_10dlc_campaign_payload, build_profile_payload, FOLLOW_UP_MESSAGE_PURPOSE, lead_has_active_whatsapp_window, connect_agent_whatsapp_for_user, get_sentdm_profile_creation_readiness, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, resolve_outbound_channel, send_live_message, upsert_profile_from_response, verify_webhook_signature
-from .tasks import process_sentdm_webhook_event_task
+from .services import build_10dlc_campaign_payload, build_profile_payload, FOLLOW_UP_MESSAGE_PURPOSE, lead_has_active_whatsapp_window, connect_agent_whatsapp_for_user, get_sentdm_profile_creation_readiness, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, resolve_outbound_channel, send_due_automated_follow_ups, send_live_message, upsert_profile_from_response, verify_webhook_signature
+from .tasks import process_sentdm_webhook_event_task, send_due_automated_follow_ups_task
 from .views import SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMWhatsAppConnectAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
@@ -117,6 +118,16 @@ class SentDMClientSandboxTests(SimpleTestCase):
             sentdm_sample_message_1 = "Remyza Realty: Thanks for reaching out about the property. Reply STOP to opt out."
             sentdm_sample_message_2 = ""
             sentdm_sample_message_3 = ""
+            sentdm_opt_in_method = "web"
+            sentdm_opt_in_starting_url = "https://example.com"
+            sentdm_opt_in_form_url = "https://example.com/contact"
+            sentdm_opt_in_url = "https://example.com/contact"
+            sentdm_opt_in_screenshot_url = ""
+            sentdm_opt_in_checkbox_text = "I agree to receive SMS messages from Remyza Realty."
+            sentdm_sms_disclaimer_text = "You are opting in to receive customer-care texts from Remyza Realty. Msg and data rates may apply. Msg frequency varies. Reply HELP for help or STOP to opt out."
+            sentdm_privacy_policy_no_mobile_sharing = True
+            sentdm_sms_consent_optional = True
+            sentdm_sms_checkbox_not_prefilled = True
             sentdm_opt_in_description = "Lead submits a website form and agrees to receive SMS replies from Remyza Realty."
             sentdm_privacy_policy_url = "https://example.com/privacy"
             sentdm_terms_url = "https://example.com/terms"
@@ -131,7 +142,66 @@ class SentDMClientSandboxTests(SimpleTestCase):
         self.assertEqual(campaign["volume"], "250")
         self.assertEqual(campaign["useCases"][0]["messagingUseCaseUs"], "CUSTOMER_CARE")
         self.assertEqual(len(campaign["useCases"][0]["sampleMessages"]), 1)
+        self.assertIn("optional, unchecked SMS consent checkbox", campaign["messageFlow"])
+        self.assertIn("Privacy Policy: https://example.com/privacy", campaign["messageFlow"])
         self.assertEqual(campaign["optoutKeywords"], "STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT")
+
+    def test_build_profile_payload_includes_sentdm_10dlc_compliance_shape(self):
+        class User:
+            id = 8
+            full_name = "Agent Example"
+            phone_number = "+15551234567"
+            email = "agent@example.com"
+
+        class Organization:
+            name = "Example Realty"
+            email = "team@example.com"
+            website = "https://example.com"
+            country = "US"
+            sentdm_legal_name = "Example Realty LLC"
+            sentdm_tax_id = "12-3456789"
+            sentdm_tax_id_type = "EIN"
+            sentdm_ein_issuing_country = "US"
+            sentdm_entity_type = "PRIVATE_PROFIT"
+            sentdm_brand_street = "123 Main St"
+            sentdm_brand_city = "Austin"
+            sentdm_brand_state = "TX"
+            sentdm_brand_postal_code = "78701"
+            sentdm_authorized_rep_name = "Agent Example"
+            sentdm_authorized_rep_email = "agent@example.com"
+            sentdm_authorized_rep_phone = "+15551234567"
+            sentdm_support_email = "support@example.com"
+            sentdm_privacy_policy_url = "https://example.com/privacy"
+            sentdm_terms_url = "https://example.com/terms"
+            sentdm_opt_in_method = "web"
+            sentdm_opt_in_starting_url = "https://example.com"
+            sentdm_opt_in_form_url = "https://example.com/contact"
+            sentdm_opt_in_url = "https://example.com/contact"
+            sentdm_opt_in_screenshot_url = ""
+            sentdm_opt_in_checkbox_text = "I agree to receive SMS messages from Example Realty."
+            sentdm_sms_disclaimer_text = "You are opting in to receive customer-care texts from Example Realty. Msg and data rates may apply. Msg frequency varies. Reply HELP for help or STOP to opt out."
+            sentdm_privacy_policy_no_mobile_sharing = True
+            sentdm_sms_consent_optional = True
+            sentdm_sms_checkbox_not_prefilled = True
+            sentdm_messaging_use_case = "Customer care replies for opted-in real estate leads."
+            sentdm_messaging_use_case_us = "CUSTOMER_CARE"
+            sentdm_expected_daily_volume = 25
+            sentdm_opt_in_confirmation_message = "Example Realty: Thanks for opting in. Reply STOP to opt out."
+            sentdm_opt_out_confirmation_message = "Example Realty: You have been unsubscribed."
+            sentdm_help_response_message = "Example Realty: Contact support@example.com. Reply STOP to opt out."
+            sentdm_whatsapp_waba_id = ""
+            sentdm_whatsapp_phone_number_id = ""
+            sentdm_whatsapp_access_token = ""
+
+        payload = build_profile_payload(Organization(), User())
+
+        self.assertEqual(payload["smsCountry"], "US")
+        self.assertEqual(payload["smsNumberType"], "TEN_DLC")
+        self.assertEqual(payload["compliance"]["brand"]["legal_name"], "Example Realty LLC")
+        self.assertEqual(payload["compliance"]["brand"]["tax_id_type"], "EIN")
+        self.assertEqual(payload["compliance"]["campaign"]["use_cases"], ["CUSTOMER_CARE"])
+        self.assertIn("Example Realty", payload["compliance"]["campaign"]["message_flow"])
+        self.assertEqual(payload["compliance"]["campaign"]["privacy_policy_link"], "https://example.com/privacy")
 
 class SentDMSendModeGuardTests(SimpleTestCase):
     def setUp(self):
@@ -197,9 +267,32 @@ class SentDMPaidSubscriptionPermissionTests(SimpleTestCase):
 
         class Organization:
             sentdm_legal_name = "Example Realty LLC"
+            sentdm_tax_id = "12-3456789"
+            sentdm_tax_id_type = "EIN"
+            sentdm_ein_issuing_country = "US"
+            sentdm_entity_type = "PRIVATE_PROFIT"
+            sentdm_brand_street = "123 Main St"
+            sentdm_brand_city = "Austin"
+            sentdm_brand_state = "TX"
+            sentdm_brand_postal_code = "78701"
+            sentdm_authorized_rep_name = "Agent Example"
+            sentdm_authorized_rep_email = "agent@example.com"
+            sentdm_authorized_rep_phone = "+15551234567"
             sentdm_support_email = "support@example.com"
             sentdm_privacy_policy_url = "https://example.com/privacy"
             sentdm_terms_url = "https://example.com/terms"
+            sentdm_opt_in_method = "web"
+            sentdm_opt_in_starting_url = "https://example.com"
+            sentdm_opt_in_form_url = "https://example.com/contact"
+            sentdm_opt_in_url = "https://example.com/contact"
+            sentdm_opt_in_screenshot_url = ""
+            sentdm_opt_in_checkbox_text = "I agree to receive SMS messages from Example Realty."
+            sentdm_sms_disclaimer_text = "You are opting in to receive customer-care texts from Example Realty. Msg and data rates may apply. Msg frequency varies. Reply HELP for help or STOP to opt out."
+            sentdm_privacy_policy_no_mobile_sharing = True
+            sentdm_sms_consent_optional = True
+            sentdm_sms_checkbox_not_prefilled = True
+            sentdm_marketing_messages_disclosed = False
+            sentdm_donation_solicitation_disclosed = False
             sentdm_opt_in_description = "Lead submits a form and agrees to receive replies."
             sentdm_messaging_use_case = "Customer care replies for opted-in real estate leads."
             sentdm_messaging_use_case_us = "CUSTOMER_CARE"
@@ -599,6 +692,40 @@ class SentDMWhatsAppConnectionStateTests(TestCase):
         self.assertTrue(response.data["data"]["profile"]["is_agent_whatsapp_active"])
         mocked_connect.assert_called_once()
 
+    def test_whatsapp_connect_endpoint_get_returns_saved_config(self):
+        self.organization.sentdm_whatsapp_waba_id = "123456789012345"
+        self.organization.sentdm_whatsapp_phone_number_id = "987654321098765"
+        self.organization.sentdm_whatsapp_access_token = "EAAxxxxxxxxxxxxxxx"
+        self.organization.save(
+            update_fields=[
+                "sentdm_whatsapp_waba_id",
+                "sentdm_whatsapp_phone_number_id",
+                "sentdm_whatsapp_access_token",
+                "updated_at",
+            ]
+        )
+        SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_endpoint_config",
+            name="Endpoint Config Profile",
+        )
+        request = self.factory.get("/api/v1/sentdm/profiles/whatsapp/connect/")
+        force_authenticate(request, user=self.user)
+
+        response = SentDMWhatsAppConnectAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["data"],
+            {
+                "profile_id": "profile_endpoint_config",
+                "waba_id": "123456789012345",
+                "phone_number_id": "987654321098765",
+                "access_token": "EAAxxxxxxxxxxxxxxx",
+            },
+        )
+
 class SentDMWhatsAppPayloadTests(SimpleTestCase):
     def test_build_profile_payload_includes_optional_whatsapp_business_account(self):
         class User:
@@ -724,6 +851,13 @@ class SentDMWebhookProcessingTests(TestCase):
             lead=lead,
             scheduled_time=timezone.now(),
         )
+        automated_followup = AutomatedFollowUp.objects.create(
+            organization=self.organization,
+            lead=lead,
+            sequence_day=1,
+            scheduled_time=timezone.now(),
+            requested_channel="sms",
+        )
         event = self.create_message_event(text="STOP", message_id="msg_stop_in")
 
         result = process_sentdm_webhook_event(event)
@@ -731,6 +865,7 @@ class SentDMWebhookProcessingTests(TestCase):
         lead.refresh_from_db()
         conversation.refresh_from_db()
         reminder.refresh_from_db()
+        automated_followup.refresh_from_db()
         event.refresh_from_db()
 
         self.assertTrue(result["processed"])
@@ -741,6 +876,7 @@ class SentDMWebhookProcessingTests(TestCase):
         self.assertEqual(conversation.status, ConversationStatus.CLOSED)
         self.assertFalse(conversation.ai_enabled)
         self.assertTrue(reminder.is_sent)
+        self.assertEqual(automated_followup.follow_up_status, "canceled")
         self.assertEqual(event.status, "processed")
         self.assertTrue(Message.objects.filter(provider_message_sid="msg_stop_in").exists())
         self.assertTrue(Message.objects.filter(provider_message_sid="msg_stop_confirm").exists())
@@ -813,6 +949,17 @@ class SentDMWebhookProcessingTests(TestCase):
         self.assertEqual(outbound_message.content, "Hi there, thanks for reaching out. Reply STOP to opt out.")
         self.assertTrue(SentDMMessage.objects.filter(sent_message_id="msg_ai_reply", lead=lead).exists())
         self.assertEqual(event.status, "processed")
+        self.assertEqual(
+            list(lead.automated_followups.order_by("sequence_day").values_list("sequence_day", flat=True)),
+            [1, 3, 7, 14],
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.user,
+                notification_type=NotificationType.FOLLOW_UP_SCHEDULED,
+                data__lead_id=str(lead.id),
+            ).exists()
+        )
         mocked_ai_service.return_value.generate_reply_and_stage.assert_called_once()
         self.assertEqual(mocked_ai_service.return_value.generate_reply_and_stage.call_args.kwargs["organization"], self.organization)
         mocked_client.return_value.send_message.assert_called_once()
@@ -837,6 +984,83 @@ class SentDMWebhookProcessingTests(TestCase):
         self.assertEqual(result["ai"]["reason"], "lead_opted_out")
         mocked_ai_service.assert_not_called()
         mocked_client.return_value.send_message.assert_not_called()
+
+    @patch("sentdm.services.SentDMClient")
+    def test_due_automated_follow_up_sends_backend_message_and_notifies_user(self, mocked_client):
+        mocked_client.return_value.send_message.return_value = {
+            "data": {"status": "QUEUED", "recipients": [{"message_id": "msg_auto_followup"}]}
+        }
+        lead = Lead.objects.create(
+            organization=self.organization,
+            business_phone=self.business_phone,
+            contact_number="+15551112222",
+            last_incoming_at=timezone.now() - timedelta(days=3),
+        )
+        Conversation.objects.create(
+            organization=self.organization,
+            lead=lead,
+            status=ConversationStatus.ACTIVE,
+        )
+        followup = AutomatedFollowUp.objects.create(
+            organization=self.organization,
+            lead=lead,
+            sequence_day=3,
+            scheduled_time=timezone.now() - timedelta(minutes=1),
+            requested_channel="whatsapp",
+        )
+
+        result = send_due_automated_follow_ups()
+
+        followup.refresh_from_db()
+        self.assertEqual(result["processed"], 1)
+        self.assertEqual(followup.follow_up_status, "sent")
+        self.assertEqual(followup.resolved_channel, "sms")
+        self.assertIn("Reply STOP to opt out", followup.message_body)
+        self.assertTrue(Message.objects.filter(provider_message_sid="msg_auto_followup", lead=lead).exists())
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.user,
+                notification_type=NotificationType.FOLLOW_UP_SENT,
+                data__followup_id=str(followup.id),
+            ).exists()
+        )
+        self.assertEqual(mocked_client.return_value.send_message.call_args.kwargs["channel"], "sms")
+
+    @patch("sentdm.services.SentDMClient")
+    def test_due_automated_follow_up_failure_notifies_user(self, mocked_client):
+        mocked_client.return_value.send_message.side_effect = SentDMClientError("provider unavailable")
+        lead = Lead.objects.create(
+            organization=self.organization,
+            business_phone=self.business_phone,
+            contact_number="+15551112222",
+            last_incoming_at=timezone.now() - timedelta(days=3),
+        )
+        Conversation.objects.create(
+            organization=self.organization,
+            lead=lead,
+            status=ConversationStatus.ACTIVE,
+        )
+        followup = AutomatedFollowUp.objects.create(
+            organization=self.organization,
+            lead=lead,
+            sequence_day=7,
+            scheduled_time=timezone.now() - timedelta(minutes=1),
+            requested_channel="sms",
+        )
+
+        result = send_due_automated_follow_ups_task()
+
+        followup.refresh_from_db()
+        self.assertEqual(result["processed"], 1)
+        self.assertEqual(followup.follow_up_status, "failed")
+        self.assertIn("provider unavailable", followup.error_message)
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.user,
+                notification_type=NotificationType.FOLLOW_UP_FAILED,
+                data__followup_id=str(followup.id),
+            ).exists()
+        )
 
     @patch("sentdm.services.SentDMClient")
     @patch("sentdm.services.AIService")

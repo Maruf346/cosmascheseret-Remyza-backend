@@ -1,0 +1,95 @@
+import uuid
+
+import django.db.models.deletion
+import django_ckeditor_5.fields
+from django.conf import settings
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    initial = True
+
+    dependencies = [
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name="AboutUs",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("content", django_ckeditor_5.fields.CKEditor5Field(config_name="extends", verbose_name="Content")),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+            ],
+            options={
+                "verbose_name": "About Us",
+                "verbose_name_plural": "About Us",
+            },
+        ),
+        migrations.CreateModel(
+            name="FAQ",
+            fields=[
+                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ("question", models.CharField(max_length=500)),
+                ("answer", models.CharField(max_length=500)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+            ],
+            options={
+                "verbose_name": "FAQ",
+                "verbose_name_plural": "FAQs",
+                "ordering": ["-created_at"],
+            },
+        ),
+        migrations.CreateModel(
+            name="PrivacyPolicy",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("content", django_ckeditor_5.fields.CKEditor5Field(config_name="extends", verbose_name="Content")),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+            ],
+            options={
+                "verbose_name": "Privacy Policy",
+                "verbose_name_plural": "Privacy Policy",
+            },
+        ),
+        migrations.CreateModel(
+            name="TermsAndConditions",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("content", django_ckeditor_5.fields.CKEditor5Field(config_name="extends", verbose_name="Content")),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+            ],
+            options={
+                "verbose_name": "Terms and Conditions",
+                "verbose_name_plural": "Terms and Conditions",
+            },
+        ),
+        migrations.CreateModel(
+            name="Feedback",
+            fields=[
+                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ("subject", models.CharField(max_length=400)),
+                ("email", models.EmailField(max_length=254)),
+                ("message", models.TextField()),
+                ("attachment", models.FileField(blank=True, null=True, upload_to="feedback_attachments/")),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="feedbacks",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+            ],
+            options={
+                "verbose_name": "Feedback",
+                "verbose_name_plural": "Feedbacks",
+                "ordering": ["-created_at"],
+            },
+        ),
+    ]

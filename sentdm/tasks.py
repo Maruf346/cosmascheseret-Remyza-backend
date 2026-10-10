@@ -2,7 +2,7 @@ from celery import shared_task
 
 from .choices import SentDMWebhookEventStatus
 from .models import SentDMWebhookEvent
-from .services import process_sentdm_webhook_event
+from .services import process_sentdm_webhook_event, send_due_automated_follow_ups
 
 
 @shared_task(bind=True, autoretry_for=(), max_retries=0, queue="sentdm")
@@ -15,6 +15,11 @@ def process_sentdm_webhook_event_task(self, event_id):
         return {"processed": True, "action": "already_processed", "event_id": event_id}
 
     return process_sentdm_webhook_event(event)
+
+
+@shared_task(bind=True, autoretry_for=(), max_retries=0, queue="sentdm")
+def send_due_automated_follow_ups_task(self, limit=50):
+    return send_due_automated_follow_ups(limit=limit)
 
 # Automatic welcome-message sending is disabled for compliance safety.
 # Kept as reference only; do not expose or call unless a controlled/template-approved flow is finalized.

@@ -2,7 +2,7 @@ import uuid
 
 from django.db import models
 from common.models import BaseModel
-from .choices import LeadActivityType, LeadSource, LeadStage
+from .choices import AutomatedFollowUpStatus, LeadActivityType, LeadSource, LeadStage
 
 
 class Contact(BaseModel):
@@ -136,3 +136,38 @@ class FollowUpReminder(BaseModel):
 
     def __str__(self):
         return f"Reminder for {self.lead.contact_number} at {self.scheduled_time}"
+
+
+class AutomatedFollowUp(BaseModel):
+    organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="automated_followups")
+    lead = models.ForeignKey(Lead, on_delete=models.CASCADE, related_name="automated_followups")
+    sequence_day = models.PositiveSmallIntegerField()
+    scheduled_time = models.DateTimeField(db_index=True)
+    follow_up_status = models.CharField(
+        max_length=20,
+        choices=AutomatedFollowUpStatus.choices,
+        default=AutomatedFollowUpStatus.SCHEDULED,
+        db_index=True,
+    )
+    requested_channel = models.CharField(max_length=20, blank=True, default="sms")
+    resolved_channel = models.CharField(max_length=20, blank=True, default="")
+    message_body = models.TextField(blank=True)
+    sentdm_message_id = models.CharField(max_length=120, blank=True, default="", db_index=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "crm_automated_followups"
+        ordering = ["scheduled_time"]
+        constraints = [
+            models.UniqueConstraint(fields=["lead", "sequence_day"], name="unique_automated_followup_day_per_lead"),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "follow_up_status"]),
+            models.Index(fields=["scheduled_time", "follow_up_status"]),
+        ]
+
+    def __str__(self):
+        return f"Day {self.sequence_day} follow-up for {self.lead.contact_number}"

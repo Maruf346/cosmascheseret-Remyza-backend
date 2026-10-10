@@ -21,3 +21,8 @@ class StructuredMessageRequestSerializer(serializers.Serializer):
 class StructuredMessageResponseSerializer(serializers.Serializer):
     tone = serializers.CharField()
     structured_msg = serializers.CharField()
+
+
+class StructuredMessageAPIResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = StructuredMessageResponseSerializer()

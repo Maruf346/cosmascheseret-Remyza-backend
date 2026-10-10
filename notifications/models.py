@@ -16,6 +16,9 @@ class NotificationType(models.TextChoices):
     WHATSAPP_CONNECTION_REQUESTED = "whatsapp_connection_requested", "WhatsApp Connection Requested"
     NEW_LEAD = "new_lead", "New Lead"
     MESSAGE_RECEIVED = "message_received", "Message Received"
+    FOLLOW_UP_SCHEDULED = "follow_up_scheduled", "Follow-up Scheduled"
+    FOLLOW_UP_SENT = "follow_up_sent", "Follow-up Sent"
+    FOLLOW_UP_FAILED = "follow_up_failed", "Follow-up Failed"
     SYSTEM_ALERT = "system_alert", "System Alert"
 
 
