@@ -90,3 +90,99 @@ class UserSubscriptionListResponseSerializer(serializers.Serializer):
     next = serializers.CharField(allow_null=True)
     previous = serializers.CharField(allow_null=True)
     results = UserSubscriptionSerializer(many=True)
+
+
+class AdminMetricSerializer(serializers.Serializer):
+    value = serializers.DecimalField(max_digits=12, decimal_places=2)
+    change_percent = serializers.FloatField()
+
+
+class AdminCountMetricSerializer(serializers.Serializer):
+    value = serializers.IntegerField()
+    change_percent = serializers.FloatField()
+
+
+class AdminSubscriptionSummarySerializer(serializers.Serializer):
+    total_revenue = AdminMetricSerializer()
+    active_subscribers = AdminCountMetricSerializer()
+    trial_users = AdminCountMetricSerializer()
+    suspended_users = AdminCountMetricSerializer()
+
+
+class AdminSubscriberListItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    user_id = serializers.IntegerField()
+    name = serializers.CharField(allow_blank=True)
+    email = serializers.EmailField(allow_blank=True, allow_null=True)
+    profile_pic = serializers.CharField(allow_blank=True, allow_null=True)
+    plan = serializers.CharField()
+    billing = serializers.CharField(allow_blank=True)
+    is_active = serializers.BooleanField()
+    joined_at = serializers.DateTimeField()
+
+
+class AdminSubscriberListDataSerializer(serializers.Serializer):
+    summary = AdminSubscriptionSummarySerializer()
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = AdminSubscriberListItemSerializer(many=True)
+
+
+class AdminSubscriberListResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminSubscriberListDataSerializer()
+
+
+class AdminSubscriberDetailSerializer(AdminSubscriberListItemSerializer):
+    phone_number = serializers.CharField()
+    status = serializers.CharField()
+    next_billing_cycle = serializers.DateTimeField(allow_null=True)
+    lifetime_spent = serializers.DecimalField(max_digits=12, decimal_places=2)
+    currency = serializers.CharField()
+    subscription_id = serializers.IntegerField(allow_null=True)
+    product_id = serializers.CharField(allow_blank=True)
+    store_status = serializers.CharField(allow_blank=True)
+    subscription_started_at = serializers.DateTimeField(allow_null=True)
+    subscription_expires_at = serializers.DateTimeField(allow_null=True)
+
+
+class AdminSubscriberDetailResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminSubscriberDetailSerializer()
+
+
+class AdminMonthlyRevenueItemSerializer(serializers.Serializer):
+    month = serializers.CharField()
+    year = serializers.IntegerField()
+    revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    currency = serializers.CharField()
+
+
+class AdminMonthlyRevenueResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminMonthlyRevenueItemSerializer(many=True)
+
+
+class AdminUserAnalyticsSummarySerializer(serializers.Serializer):
+    total_users = serializers.IntegerField()
+    active_subscriptions = serializers.IntegerField()
+    monthly_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_leads_captured = serializers.IntegerField()
+
+
+class AdminUserRatioItemSerializer(serializers.Serializer):
+    month = serializers.CharField()
+    year = serializers.IntegerField()
+    users = serializers.IntegerField()
+
+
+class AdminUserAnalyticsDataSerializer(serializers.Serializer):
+    summary = AdminUserAnalyticsSummarySerializer()
+    year = serializers.IntegerField()
+    user_ratio = AdminUserRatioItemSerializer(many=True)
+
+
+class AdminUserAnalyticsResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminUserAnalyticsDataSerializer()

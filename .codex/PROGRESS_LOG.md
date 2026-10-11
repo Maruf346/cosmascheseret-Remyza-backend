@@ -815,3 +815,22 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test core.tests.AdminGeneralSettingsAPIViewTests accounts.tests.AdminProfileAPIViewTests`
   - `.venv\Scripts\python.exe manage.py check`
 - Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-11 - Admin Subscription, Revenue, and User Analytics APIs
+
+- Added admin/staff-only subscription dashboard endpoints:
+  - `GET /api/v1/admin/subscriptions/`
+  - `GET /api/v1/admin/subscriptions/{user_id}/`
+  - `GET /api/v1/admin/revenue/monthly/`
+  - `GET /api/v1/admin/users/analytics/`
+- Subscriber list returns summary cards for total revenue, active subscribers, trial users, and suspended users, each with current-month vs previous-month percent change.
+- Subscriber rows include name, email, profile picture, plan (`pro`, `free`, `trial`), billing label, active status, and joined date.
+- Subscriber retrieve adds phone/status, next billing cycle, lifetime spent, currency, subscription identifiers, product/store status, and subscription dates.
+- Monthly revenue endpoint returns the last six calendar months with revenue values in USD.
+- User analytics endpoint returns total users, active subscription count, current monthly revenue, total leads captured, and monthly user signup ratios for `this_year`, `last_year`, or a numeric year.
+- Updated existing subscription list tests to assert against the paginated response envelope.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q subscription`
+  - `.venv\Scripts\python.exe manage.py test subscription.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.

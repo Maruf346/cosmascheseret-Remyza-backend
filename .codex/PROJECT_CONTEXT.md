@@ -329,6 +329,31 @@ Updated on 2026-10-10:
 - PATCH allows only full name, email, and profile picture updates.
 - Phone number is intentionally read-only on this endpoint.
 
+## CURRENT ADMIN SUBSCRIPTION AND REVENUE ANALYTICS API
+
+Updated on 2026-10-11:
+
+- Admin/staff users can access subscription and revenue dashboard endpoints:
+  - `GET /api/v1/admin/subscriptions/`
+  - `GET /api/v1/admin/subscriptions/{user_id}/`
+  - `GET /api/v1/admin/revenue/monthly/`
+  - `GET /api/v1/admin/users/analytics/`
+- `GET /api/v1/admin/subscriptions/` is paginated and returns summary cards plus subscriber rows.
+- Subscription summary cards include:
+  - total revenue amount with current-month vs previous-month percent change
+  - active subscribers count with percent change
+  - trial users count with percent change
+  - suspended users count with percent change
+- Subscriber rows include name, email, profile picture, normalized plan (`pro`, `free`, `trial`), billing label, user active status, and joined date.
+- `GET /api/v1/admin/subscriptions/{user_id}/` returns subscriber detail with next billing cycle and lifetime spent.
+- `GET /api/v1/admin/revenue/monthly/` returns the last six calendar months as `{ month, year, revenue, currency }`.
+- `GET /api/v1/admin/users/analytics/` returns:
+  - total users
+  - active subscriptions
+  - current monthly revenue
+  - total leads captured
+  - monthly user signup counts for `year=this_year`, `year=last_year`, or `year=2024`.
+
 ## CURRENT SWAGGER / OPENAPI DOCUMENTATION STANDARD
 
 Updated on 2026-10-08:
