@@ -164,6 +164,46 @@ class AdminMonthlyRevenueResponseSerializer(serializers.Serializer):
     data = AdminMonthlyRevenueItemSerializer(many=True)
 
 
+class AdminRevenueAnalyticsSummarySerializer(serializers.Serializer):
+    new_users = AdminCountMetricSerializer()
+    revenue = AdminMetricSerializer()
+    messages_sent = AdminCountMetricSerializer()
+    lead_conversion_percent = AdminMetricSerializer()
+
+
+class AdminMessageVolumeItemSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    message_volume = serializers.IntegerField()
+
+
+class AdminSubscriberBreakdownItemSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    count = serializers.IntegerField()
+    percent = serializers.FloatField()
+
+
+class AdminLeadBreakdownItemSerializer(serializers.Serializer):
+    label = serializers.CharField()
+    count = serializers.IntegerField()
+    percent = serializers.FloatField()
+    change_percent = serializers.FloatField(required=False)
+
+
+class AdminRevenueAnalyticsDataSerializer(serializers.Serializer):
+    period = serializers.CharField()
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    summary = AdminRevenueAnalyticsSummarySerializer()
+    message_volume_analytics = AdminMessageVolumeItemSerializer(many=True)
+    subscribers = AdminSubscriberBreakdownItemSerializer(many=True)
+    leads = AdminLeadBreakdownItemSerializer(many=True)
+
+
+class AdminRevenueAnalyticsResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminRevenueAnalyticsDataSerializer()
+
+
 class AdminUserAnalyticsSummarySerializer(serializers.Serializer):
     total_users = serializers.IntegerField()
     active_subscriptions = serializers.IntegerField()

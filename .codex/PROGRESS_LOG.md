@@ -834,3 +834,26 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test subscription.tests`
   - `.venv\Scripts\python.exe manage.py check`
 - Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-11 - Filterable Admin Revenue Analytics API
+
+- Added admin/staff-only endpoint `GET /api/v1/admin/revenue/analytics/`.
+- Supported filters:
+  - `period=this_week`
+  - `period=this_month`
+  - `period=this_quarter`
+  - `period=this_year`
+  - `period=custom&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`
+- Summary returns new users, revenue, outbound messages sent, and lead conversion percent, each with percent change versus the previous equivalent period.
+- Message volume analytics adapts buckets by range:
+  - week: weekday buckets
+  - month or short custom range: daily buckets
+  - quarter or longer custom range: weekly buckets
+  - year: monthly buckets
+- Subscriber breakdown returns total subscribers, pro subscribers, and trial/free users with count and percentage.
+- Lead breakdown returns hot, warm, cold, and total leads with count/percentage; total leads also includes change percent versus the previous equivalent period.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q subscription`
+  - `.venv\Scripts\python.exe manage.py test subscription.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.

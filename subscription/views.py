@@ -1,10 +1,11 @@
 from calendar import month_abbr
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.db.models import DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import mixins
 from rest_framework.pagination import PageNumberPagination
@@ -16,10 +17,14 @@ from rest_framework.viewsets import GenericViewSet
 from accounts.choices import UserType
 from accounts.models import User
 from common.choices import Status
+from crm.choices import LeadStage
 from crm.models import Lead
+from sentdm.choices import SentDMMessageDirection
+from sentdm.models import SentDMMessage
 from .models import UserSubscription
 from .serializers import (
     AdminMonthlyRevenueResponseSerializer,
+    AdminRevenueAnalyticsResponseSerializer,
     AdminSubscriberDetailResponseSerializer,
     AdminSubscriberListResponseSerializer,
     AdminUserAnalyticsResponseSerializer,
@@ -231,6 +236,154 @@ class AdminSubscriptionAnalyticsMixin:
             .order_by("-created_at")
         )
 
+    def get_period_range(self, request):
+        now = timezone.now()
+        period = (request.query_params.get("period") or "this_month").strip().lower()
+        if period == "this_week":
+            start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + timedelta(days=7)
+        elif period == "this_month":
+            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            if start.month == 12:
+                end = start.replace(year=start.year + 1, month=1)
+            else:
+                end = start.replace(month=start.month + 1)
+        elif period == "this_quarter":
+            quarter_month = ((now.month - 1) // 3) * 3 + 1
+            start = now.replace(month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+            end_month = quarter_month + 3
+            if end_month > 12:
+                end = start.replace(year=start.year + 1, month=end_month - 12)
+            else:
+                end = start.replace(month=end_month)
+        elif period == "this_year":
+            start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            end = start.replace(year=start.year + 1)
+        elif period == "custom":
+            from_value = parse_date(request.query_params.get("from_date") or "")
+            to_value = parse_date(request.query_params.get("to_date") or "")
+            if not from_value or not to_value:
+                raise ValueError("from_date and to_date are required for custom range.")
+            if to_value < from_value:
+                raise ValueError("to_date must be after or equal to from_date.")
+            start = timezone.make_aware(datetime.combine(from_value, datetime.min.time()))
+            end = timezone.make_aware(datetime.combine(to_value + timedelta(days=1), datetime.min.time()))
+        else:
+            raise ValueError("period must be one of this_week, this_month, this_quarter, this_year, or custom.")
+        return period, start, end
+
+    def get_previous_range(self, start, end):
+        duration = end - start
+        return start - duration, start
+
+    def count_users_for_range(self, start, end):
+        return User.objects.filter(
+            is_staff=False,
+            is_superuser=False,
+            created_at__gte=start,
+            created_at__lt=end,
+        ).count()
+
+    def count_messages_for_range(self, start, end):
+        return SentDMMessage.objects.filter(
+            direction=SentDMMessageDirection.OUTBOUND,
+            created_at__gte=start,
+            created_at__lt=end,
+        ).count()
+
+    def lead_conversion_percent_for_range(self, start, end):
+        leads = Lead.objects.filter(created_at__gte=start, created_at__lt=end)
+        total = leads.count()
+        if total == 0:
+            return Decimal("0.00")
+        converted = leads.filter(stage=LeadStage.CONVERTED).count()
+        return Decimal(converted * 100) / Decimal(total)
+
+    def percent_share(self, count, total):
+        if total == 0:
+            return 0.0
+        return round(float(Decimal(count) * Decimal("100") / Decimal(total)), 2)
+
+    def get_bucket_step(self, period, start, end):
+        days = (end - start).days
+        if period == "this_week":
+            return "day"
+        if period == "this_year":
+            return "month"
+        if period == "this_month" or days <= 31:
+            return "day"
+        return "week"
+
+    def iter_message_buckets(self, period, start, end):
+        step = self.get_bucket_step(period, start, end)
+        current = start
+        buckets = []
+        while current < end:
+            if step == "month":
+                next_month = current.month + 1
+                next_year = current.year
+                if next_month == 13:
+                    next_month = 1
+                    next_year += 1
+                bucket_end = current.replace(year=next_year, month=next_month)
+                label = month_abbr[current.month]
+            elif step == "week":
+                bucket_end = min(current + timedelta(days=7), end)
+                label = f"{current.strftime('%b %d')}-{(bucket_end - timedelta(days=1)).strftime('%b %d')}"
+            else:
+                bucket_end = min(current + timedelta(days=1), end)
+                label = current.strftime("%a").lower() if period == "this_week" else current.strftime("%b %d")
+            buckets.append(
+                {
+                    "label": label,
+                    "message_volume": self.count_messages_for_range(current, bucket_end),
+                }
+            )
+            current = bucket_end
+        return buckets
+
+    def get_subscriber_breakdown(self):
+        normal_users = User.objects.filter(is_staff=False, is_superuser=False)
+        total_users = normal_users.count()
+        pro_user_ids = set(
+            UserSubscription.objects
+            .filter(self.paid_subscription_filter())
+            .values_list("user_id", flat=True)
+            .distinct()
+        )
+        trial_user_ids = set(
+            UserSubscription.objects
+            .filter(self.trial_subscription_filter())
+            .values_list("user_id", flat=True)
+            .distinct()
+        )
+        total_subscribers = len(pro_user_ids | trial_user_ids)
+        trial_or_free_count = max(total_users - len(pro_user_ids), 0)
+        return [
+            {"label": "total_subscribers", "count": total_subscribers, "percent": self.percent_share(total_subscribers, total_users)},
+            {"label": "pro_subscribers", "count": len(pro_user_ids), "percent": self.percent_share(len(pro_user_ids), total_users)},
+            {"label": "trial_or_free_users", "count": trial_or_free_count, "percent": self.percent_share(trial_or_free_count, total_users)},
+        ]
+
+    def get_lead_breakdown(self, start, end, previous_start, previous_end):
+        leads = Lead.objects.filter(created_at__gte=start, created_at__lt=end)
+        previous_leads = Lead.objects.filter(created_at__gte=previous_start, created_at__lt=previous_end)
+        total = leads.count()
+        previous_total = previous_leads.count()
+        items = []
+        for label, stage in (("hot_leads", LeadStage.HOT), ("warm_leads", LeadStage.WARM), ("cold_leads", LeadStage.COLD)):
+            count = leads.filter(stage=stage).count()
+            items.append({"label": label, "count": count, "percent": self.percent_share(count, total)})
+        items.append(
+            {
+                "label": "total_leads",
+                "count": total,
+                "percent": 100.0 if total else 0.0,
+                "change_percent": self.percent_change(total, previous_total),
+            }
+        )
+        return items
+
 
 class UserSubscriptionViewSet(
     mixins.ListModelMixin,
@@ -345,6 +498,76 @@ class AdminMonthlyRevenueAPIView(AdminSubscriptionAnalyticsMixin, APIView):
             }
             for start, end in self.iter_last_six_months()
         ]
+        return Response({"success": True, "data": data})
+
+
+class AdminRevenueAnalyticsAPIView(AdminSubscriptionAnalyticsMixin, APIView):
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        tags=["Admin - Revenue"],
+        summary="Get revenue analytics",
+        description=(
+            "Returns filtered revenue analytics for this week, this month, this quarter, this year, "
+            "or a custom date range. Custom ranges require `from_date` and `to_date` in YYYY-MM-DD format."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "period",
+                str,
+                required=False,
+                description="One of `this_week`, `this_month`, `this_quarter`, `this_year`, or `custom`.",
+            ),
+            OpenApiParameter("from_date", str, required=False, description="Custom range start date in YYYY-MM-DD format."),
+            OpenApiParameter("to_date", str, required=False, description="Custom range end date in YYYY-MM-DD format."),
+        ],
+        responses={
+            200: AdminRevenueAnalyticsResponseSerializer,
+            400: OpenApiResponse(description="Invalid period or custom date range."),
+        },
+    )
+    def get(self, request):
+        try:
+            period, start, end = self.get_period_range(request)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        previous_start, previous_end = self.get_previous_range(start, end)
+        current_new_users = self.count_users_for_range(start, end)
+        previous_new_users = self.count_users_for_range(previous_start, previous_end)
+        current_revenue = self.get_revenue_for_range(start, end)
+        previous_revenue = self.get_revenue_for_range(previous_start, previous_end)
+        current_messages = self.count_messages_for_range(start, end)
+        previous_messages = self.count_messages_for_range(previous_start, previous_end)
+        current_conversion = self.lead_conversion_percent_for_range(start, end)
+        previous_conversion = self.lead_conversion_percent_for_range(previous_start, previous_end)
+
+        data = {
+            "period": period,
+            "start_date": start.date(),
+            "end_date": (end - timedelta(days=1)).date(),
+            "summary": {
+                "new_users": {
+                    "value": current_new_users,
+                    "change_percent": self.percent_change(current_new_users, previous_new_users),
+                },
+                "revenue": {
+                    "value": current_revenue,
+                    "change_percent": self.percent_change(current_revenue, previous_revenue),
+                },
+                "messages_sent": {
+                    "value": current_messages,
+                    "change_percent": self.percent_change(current_messages, previous_messages),
+                },
+                "lead_conversion_percent": {
+                    "value": current_conversion,
+                    "change_percent": self.percent_change(current_conversion, previous_conversion),
+                },
+            },
+            "message_volume_analytics": self.iter_message_buckets(period, start, end),
+            "subscribers": self.get_subscriber_breakdown(),
+            "leads": self.get_lead_breakdown(start, end, previous_start, previous_end),
+        }
         return Response({"success": True, "data": data})
 
 

@@ -7,13 +7,17 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from accounts.choices import UserType
 from accounts.models import User
 from common.choices import Status
+from crm.choices import LeadStage
 from crm.models import Lead
 from business.models import Organization
+from sentdm.choices import SentDMMessageDirection
+from sentdm.models import SentDMMessage
 from .models import UserSubscription
 from .serializers import UserSubscriptionSerializer
 from .services.purchase import SubscriptionValidationService
 from .views import (
     AdminMonthlyRevenueAPIView,
+    AdminRevenueAnalyticsAPIView,
     AdminSubscriberDetailAPIView,
     AdminSubscriberListAPIView,
     AdminUserAnalyticsAPIView,
@@ -286,3 +290,44 @@ class AdminSubscriptionAnalyticsAPIViewTests(TestCase):
         self.assertEqual(response.data["data"]["summary"]["monthly_revenue"], 79)
         self.assertEqual(response.data["data"]["summary"]["total_leads_captured"], 1)
         self.assertEqual(len(response.data["data"]["user_ratio"]), 12)
+
+    def test_admin_revenue_analytics_returns_filtered_summary_and_breakdowns(self):
+        organization = self.active_user.organization
+        lead = Lead.objects.create(organization=organization, contact_number="+15556667778", stage=LeadStage.HOT)
+        Lead.objects.create(organization=organization, contact_number="+15556667779", stage=LeadStage.CONVERTED)
+        SentDMMessage.objects.create(
+            organization=organization,
+            lead=lead,
+            direction=SentDMMessageDirection.OUTBOUND,
+            to_number="+15556667778",
+            body="Hello",
+        )
+        request = self.factory.get("/api/v1/admin/revenue/analytics/?period=this_month")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminRevenueAnalyticsAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["period"], "this_month")
+        self.assertEqual(response.data["data"]["summary"]["revenue"]["value"], 79)
+        self.assertEqual(response.data["data"]["summary"]["messages_sent"]["value"], 1)
+        self.assertGreater(response.data["data"]["summary"]["lead_conversion_percent"]["value"], 0)
+        self.assertTrue(response.data["data"]["message_volume_analytics"])
+        subscriber_labels = {item["label"] for item in response.data["data"]["subscribers"]}
+        self.assertIn("total_subscribers", subscriber_labels)
+        self.assertIn("pro_subscribers", subscriber_labels)
+        self.assertIn("trial_or_free_users", subscriber_labels)
+        lead_labels = {item["label"] for item in response.data["data"]["leads"]}
+        self.assertIn("hot_leads", lead_labels)
+        self.assertIn("warm_leads", lead_labels)
+        self.assertIn("cold_leads", lead_labels)
+        self.assertIn("total_leads", lead_labels)
+
+    def test_admin_revenue_analytics_custom_range_requires_dates(self):
+        request = self.factory.get("/api/v1/admin/revenue/analytics/?period=custom")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminRevenueAnalyticsAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("from_date", response.data["detail"])

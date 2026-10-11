@@ -347,6 +347,21 @@ Updated on 2026-10-11:
 - Subscriber rows include name, email, profile picture, normalized plan (`pro`, `free`, `trial`), billing label, user active status, and joined date.
 - `GET /api/v1/admin/subscriptions/{user_id}/` returns subscriber detail with next billing cycle and lifetime spent.
 - `GET /api/v1/admin/revenue/monthly/` returns the last six calendar months as `{ month, year, revenue, currency }`.
+- `GET /api/v1/admin/revenue/analytics/` returns filterable revenue analytics.
+- Revenue analytics supports:
+  - `period=this_week`
+  - `period=this_month`
+  - `period=this_quarter`
+  - `period=this_year`
+  - `period=custom&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`
+- Revenue analytics summary includes new users, revenue amount, outbound messages sent, and lead conversion percent; each includes percent change compared to the previous equivalent period.
+- Revenue analytics message volume buckets adapt to the selected range:
+  - week: weekday buckets
+  - month or short custom range: daily buckets
+  - quarter or longer custom range: weekly buckets
+  - year: monthly buckets
+- Revenue analytics subscriber breakdown includes total subscribers, pro subscribers, and trial/free users with count and percentage.
+- Revenue analytics lead breakdown includes hot, warm, cold, and total leads with count/percentage. Total leads includes change percent versus the previous equivalent period.
 - `GET /api/v1/admin/users/analytics/` returns:
   - total users
   - active subscriptions
