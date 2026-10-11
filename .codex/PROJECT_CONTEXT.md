@@ -369,6 +369,23 @@ Updated on 2026-10-11:
   - total leads captured
   - monthly user signup counts for `year=this_year`, `year=last_year`, or `year=2024`.
 
+## CURRENT ADMIN MESSAGE MONITORING API
+
+Updated on 2026-10-11:
+
+- Admin/staff users can inspect messages through read-only endpoints:
+  - `GET /api/v1/admin/messages/`
+  - `GET /api/v1/admin/messages/{message_id}/`
+  - `GET /api/v1/admin/conversations/{conversation_id}/messages/`
+- Message monitoring is intentionally view-only; there is no admin/manual reply endpoint.
+- `GET /api/v1/admin/messages/` is paginated and returns summary counts:
+  - total messages
+  - delivered/sent messages
+  - failed messages
+- Message list rows include Chesera user details, contact/receiver details, message body, provider status, sent/received direction, timestamp, and conversation id.
+- `GET /api/v1/admin/messages/{message_id}/` includes sender/receiver detail, Chesera user flag, channel, content, provider metadata, Sent.dm message id, and conversation id.
+- `GET /api/v1/admin/conversations/{conversation_id}/messages/` returns a paginated conversation timeline with Chesera user sender details, conversation receiver details, total message count, and per-message sender/receiver/status metadata.
+
 ## CURRENT SWAGGER / OPENAPI DOCUMENTATION STANDARD
 
 Updated on 2026-10-08:

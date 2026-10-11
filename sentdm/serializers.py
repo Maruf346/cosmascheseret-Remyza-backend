@@ -26,6 +26,92 @@ class SentDMMessageSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
 
+class AdminMessageUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField(allow_null=True)
+    name = serializers.CharField(allow_blank=True)
+    phone = serializers.CharField(allow_blank=True)
+    profile_pic = serializers.CharField(allow_blank=True, allow_null=True)
+    is_chesera_user = serializers.BooleanField()
+
+
+class AdminMessageContactSerializer(serializers.Serializer):
+    id = serializers.IntegerField(allow_null=True)
+    name = serializers.CharField(allow_blank=True)
+    phone = serializers.CharField(allow_blank=True)
+
+
+class AdminMessageSummarySerializer(serializers.Serializer):
+    total_messages = serializers.IntegerField()
+    delivered_or_sent_messages = serializers.IntegerField()
+    failed_messages = serializers.IntegerField()
+
+
+class AdminMessageListItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    user = AdminMessageUserSerializer()
+    contact = AdminMessageContactSerializer()
+    receiver = AdminMessageContactSerializer()
+    message = serializers.CharField(allow_blank=True)
+    status = serializers.CharField()
+    direction = serializers.CharField()
+    timestamp = serializers.DateTimeField()
+    conversation_id = serializers.IntegerField(allow_null=True)
+
+
+class AdminMessageListDataSerializer(serializers.Serializer):
+    summary = AdminMessageSummarySerializer()
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = AdminMessageListItemSerializer(many=True)
+
+
+class AdminMessageListResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminMessageListDataSerializer()
+
+
+class AdminMessageDetailSerializer(AdminMessageListItemSerializer):
+    from_user = AdminMessageUserSerializer()
+    to = AdminMessageContactSerializer()
+    content = serializers.CharField(allow_blank=True)
+    metadata = serializers.JSONField()
+    channel = serializers.CharField()
+    sent_message_id = serializers.CharField(allow_blank=True)
+
+
+class AdminMessageDetailResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminMessageDetailSerializer()
+
+
+class AdminConversationMessageItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    sender = AdminMessageUserSerializer()
+    receiver = AdminMessageContactSerializer()
+    message = serializers.CharField(allow_blank=True)
+    timestamp = serializers.DateTimeField()
+    status = serializers.JSONField()
+    direction = serializers.CharField()
+    metadata = serializers.JSONField()
+
+
+class AdminConversationMessagesDataSerializer(serializers.Serializer):
+    conversation_id = serializers.IntegerField()
+    chesera_user = AdminMessageUserSerializer()
+    receiver = AdminMessageContactSerializer()
+    total_messages = serializers.IntegerField()
+    count = serializers.IntegerField()
+    next = serializers.CharField(allow_null=True)
+    previous = serializers.CharField(allow_null=True)
+    results = AdminConversationMessageItemSerializer(many=True)
+
+
+class AdminConversationMessagesResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = AdminConversationMessagesDataSerializer()
+
+
 class SentDMWebhookEventSerializer(serializers.ModelSerializer):
     class Meta:
         model = SentDMWebhookEvent

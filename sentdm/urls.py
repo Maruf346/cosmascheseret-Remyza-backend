@@ -3,6 +3,9 @@ from django.urls import path
 from .views import *
 
 urlpatterns = [
+    path("admin/messages/", AdminMessageListAPIView.as_view(), name="admin-message-list"),
+    path("admin/messages/<int:message_id>/", AdminMessageDetailAPIView.as_view(), name="admin-message-detail"),
+    path("admin/conversations/<int:conversation_id>/messages/", AdminConversationMessagesAPIView.as_view(), name="admin-conversation-messages"),
     path("sentdm/account/check/", SentDMAccountCheckAPIView.as_view(), name="sentdm-account-check"),
     path("sentdm/profiles/", SentDMProfileListAPIView.as_view(), name="sentdm-profile-list"),
     path("sentdm/profiles/create/", SentDMProfileCreateAPIView.as_view(), name="sentdm-profile-create"),

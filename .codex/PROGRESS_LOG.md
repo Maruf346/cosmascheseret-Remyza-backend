@@ -857,3 +857,20 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test subscription.tests`
   - `.venv\Scripts\python.exe manage.py check`
 - Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-11 - Admin Message Monitoring and Conversation Inbox APIs
+
+- Added admin/staff-only, view-only message monitoring endpoints:
+  - `GET /api/v1/admin/messages/`
+  - `GET /api/v1/admin/messages/{message_id}/`
+  - `GET /api/v1/admin/conversations/{conversation_id}/messages/`
+- Message list returns summary counts for total messages, delivered/sent messages, and failed messages.
+- Message list rows include Chesera user name/profile picture, contact/receiver name and number, message body, status, sent/received direction, timestamp, and conversation id.
+- Message detail includes sender, receiver, Chesera-user flag, channel, message content, provider metadata, Sent.dm message id, status, direction, timestamp, and conversation id.
+- Conversation endpoint returns Chesera user sender details, receiver details, total messages, and paginated conversation message rows.
+- Kept admin inbox read-only; no manual reply endpoint was added.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.

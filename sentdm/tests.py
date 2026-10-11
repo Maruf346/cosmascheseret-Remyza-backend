@@ -21,12 +21,12 @@ from crm.models import AutomatedFollowUp, Contact, FollowUpReminder, Lead
 from notifications.models import Notification, NotificationType
 from subscription.models import UserSubscription
 
-from .choices import SentDMChannel, SentDMWhatsAppConnectionSource, SentDMWhatsAppConnectionStatus
+from .choices import SentDMChannel, SentDMMessageDirection, SentDMMessageStatus, SentDMWhatsAppConnectionSource, SentDMWhatsAppConnectionStatus
 from .client import SentDMClient, SentDMClientError
 from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
 from .services import build_10dlc_campaign_payload, build_profile_payload, FOLLOW_UP_MESSAGE_PURPOSE, lead_has_active_whatsapp_window, connect_agent_whatsapp_for_user, get_sentdm_profile_creation_readiness, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, resolve_outbound_channel, send_due_automated_follow_ups, send_live_message, upsert_profile_from_response, verify_webhook_signature
 from .tasks import process_sentdm_webhook_event_task, send_due_automated_follow_ups_task
-from .views import SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMWhatsAppConnectAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
+from .views import AdminConversationMessagesAPIView, AdminMessageDetailAPIView, AdminMessageListAPIView, SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMWhatsAppConnectAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
 class DummyUser:
@@ -314,6 +314,133 @@ class SentDMPaidSubscriptionPermissionTests(SimpleTestCase):
         self.assertTrue(readiness["ready"])
         self.assertFalse(readiness["has_direct_whatsapp_business_account"])
         self.assertIn("organization-level WhatsApp Business Account", readiness["warnings"][0])
+
+
+class AdminMessageMonitoringAPIViewTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.admin = User.objects.create(
+            phone_number="+15550002000",
+            email="admin-messages@example.com",
+            full_name="Admin Messages",
+            is_staff=True,
+        )
+        self.user = User.objects.create(
+            phone_number="+15550002001",
+            email="agent-messages@example.com",
+            full_name="Agent Messages",
+        )
+        self.organization = Organization.objects.create(owner=self.user, name="Message Realty")
+        self.contact = Contact.objects.create(
+            organization=self.organization,
+            full_name="Lead Contact",
+            phone_number="+15551112222",
+            contact_number="+15551112222",
+            email="lead@example.com",
+        )
+        self.lead = Lead.objects.create(
+            organization=self.organization,
+            contact=self.contact,
+            full_name="Lead Contact",
+            contact_number="+15551112222",
+        )
+        self.contact.linked_lead = self.lead
+        self.contact.save(update_fields=["linked_lead", "updated_at"])
+        self.conversation = Conversation.objects.create(
+            organization=self.organization,
+            lead=self.lead,
+            status=ConversationStatus.ACTIVE,
+        )
+        self.profile = SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_admin_messages",
+            name="Admin Messages Profile",
+            phone_number="+15559990000",
+        )
+        self.delivered_message = SentDMMessage.objects.create(
+            organization=self.organization,
+            profile=self.profile,
+            lead=self.lead,
+            conversation=self.conversation,
+            sent_message_id="msg_delivered_admin",
+            direction=SentDMMessageDirection.OUTBOUND,
+            from_number=self.profile.phone_number,
+            to_number=self.lead.contact_number,
+            body="Thanks for reaching out.",
+            status=SentDMMessageStatus.DELIVERED,
+            raw_response={"provider": "sentdm", "status": "delivered"},
+        )
+        self.failed_message = SentDMMessage.objects.create(
+            organization=self.organization,
+            profile=self.profile,
+            lead=self.lead,
+            conversation=self.conversation,
+            sent_message_id="msg_failed_admin",
+            direction=SentDMMessageDirection.OUTBOUND,
+            from_number=self.profile.phone_number,
+            to_number=self.lead.contact_number,
+            body="Follow-up message.",
+            status=SentDMMessageStatus.FAILED,
+            raw_response={"error": "carrier rejected"},
+        )
+        self.inbound_message = SentDMMessage.objects.create(
+            organization=self.organization,
+            profile=self.profile,
+            lead=self.lead,
+            conversation=self.conversation,
+            sent_message_id="msg_inbound_admin",
+            direction=SentDMMessageDirection.INBOUND,
+            from_number=self.lead.contact_number,
+            to_number=self.profile.phone_number,
+            body="I am interested.",
+            status=SentDMMessageStatus.DELIVERED,
+        )
+
+    def test_admin_message_list_returns_summary_and_rows(self):
+        request = self.factory.get("/api/v1/admin/messages/?page_size=10")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminMessageListAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["summary"]["total_messages"], 3)
+        self.assertEqual(response.data["data"]["summary"]["delivered_or_sent_messages"], 2)
+        self.assertEqual(response.data["data"]["summary"]["failed_messages"], 1)
+        self.assertEqual(response.data["data"]["count"], 3)
+        row = response.data["data"]["results"][0]
+        self.assertIn(row["direction"], {"sent", "received"})
+        self.assertEqual(row["user"]["name"], "Agent Messages")
+        self.assertEqual(row["contact"]["name"], "Lead Contact")
+
+    def test_admin_message_detail_returns_sender_receiver_metadata_and_conversation(self):
+        request = self.factory.get(f"/api/v1/admin/messages/{self.delivered_message.id}/")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminMessageDetailAPIView.as_view()(request, message_id=self.delivered_message.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["from_user"]["name"], "Agent Messages")
+        self.assertTrue(response.data["data"]["from_user"]["is_chesera_user"])
+        self.assertEqual(response.data["data"]["to"]["phone"], "+15551112222")
+        self.assertEqual(response.data["data"]["conversation_id"], self.conversation.id)
+        self.assertEqual(response.data["data"]["metadata"]["provider"], "sentdm")
+
+    def test_admin_conversation_messages_returns_header_and_paginated_timeline(self):
+        request = self.factory.get(f"/api/v1/admin/conversations/{self.conversation.id}/messages/?page_size=10")
+        force_authenticate(request, user=self.admin)
+
+        response = AdminConversationMessagesAPIView.as_view()(request, conversation_id=self.conversation.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"]["conversation_id"], self.conversation.id)
+        self.assertEqual(response.data["data"]["chesera_user"]["name"], "Agent Messages")
+        self.assertEqual(response.data["data"]["receiver"]["phone"], "+15551112222")
+        self.assertEqual(response.data["data"]["total_messages"], 3)
+        self.assertEqual(response.data["data"]["count"], 3)
+        self.assertEqual(response.data["data"]["results"][0]["sender"]["name"], "Agent Messages")
+        self.assertIn("value", response.data["data"]["results"][0]["status"])
+
 
 class SentDMWebhookSignatureTests(SimpleTestCase):
     def setUp(self):
@@ -1015,7 +1142,7 @@ class SentDMWebhookProcessingTests(TestCase):
         self.assertEqual(result["processed"], 1)
         self.assertEqual(followup.follow_up_status, "sent")
         self.assertEqual(followup.resolved_channel, "sms")
-        self.assertIn("Reply STOP to opt out", followup.message_body)
+        self.assertIn("reply STOP to opt out", followup.message_body)
         self.assertTrue(Message.objects.filter(provider_message_sid="msg_auto_followup", lead=lead).exists())
         self.assertTrue(
             Notification.objects.filter(
