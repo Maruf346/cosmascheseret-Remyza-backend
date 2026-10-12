@@ -386,6 +386,27 @@ Updated on 2026-10-11:
 - `GET /api/v1/admin/messages/{message_id}/` includes sender/receiver detail, Chesera user flag, channel, content, provider metadata, Sent.dm message id, and conversation id.
 - `GET /api/v1/admin/conversations/{conversation_id}/messages/` returns a paginated conversation timeline with Chesera user sender details, conversation receiver details, total message count, and per-message sender/receiver/status metadata.
 
+## CURRENT SENT.DM SENDER PROFILE SYNC
+
+Updated on 2026-10-12:
+
+- Sent.dm MCP currently shows the live Chesera Sender Profile as `PENDING_REVIEW` for US `TEN_DLC`, with no assigned number returned yet.
+- Webhook-based number updates are supported when Sent.dm includes the assigned number in the profile-ready callback payload.
+- A manual sync endpoint also exists so production/testing does not depend only on webhook timing:
+  - `POST /api/v1/sentdm/profiles/sync/`
+- Sync endpoint behavior:
+  - requires authenticated paid user access
+  - loads the authenticated user's local Sent.dm profile
+  - fetches latest profile state from Sent.dm
+  - updates local profile status and assigned SMS phone number when available
+  - updates WhatsApp number fields when returned by Sent.dm
+  - stores raw provider response and `last_synced_at`
+  - creates the local Chesera `PhoneNumber` row once a valid assigned number is returned
+- Production demo flow after Sent.dm approval/number assignment:
+  - call `POST /api/v1/sentdm/profiles/sync/`
+  - check `GET /api/v1/me/chesera-number/`
+  - check the current Sent.dm profile endpoint to confirm profile status and number state
+
 ## CURRENT SWAGGER / OPENAPI DOCUMENTATION STANDARD
 
 Updated on 2026-10-08:

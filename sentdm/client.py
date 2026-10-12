@@ -97,6 +97,9 @@ class SentDMClient:
     def get_profile(self, profile_id):
         return self._request("GET", f"/profiles/{profile_id}")
 
+    def get_sender_profile(self, profile_id):
+        return self._request("GET", f"/sender-profiles/{profile_id}")
+
 
     def update_profile(self, profile_id, payload, *, idempotency_key=None):
         return self._request(

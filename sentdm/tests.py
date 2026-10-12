@@ -26,7 +26,7 @@ from .client import SentDMClient, SentDMClientError
 from .models import SentDMMessage, SentDMProfile, SentDMWebhookEvent
 from .services import build_10dlc_campaign_payload, build_profile_payload, FOLLOW_UP_MESSAGE_PURPOSE, lead_has_active_whatsapp_window, connect_agent_whatsapp_for_user, get_sentdm_profile_creation_readiness, normalize_message_status, normalize_profile_status, process_sentdm_webhook_event, resolve_outbound_channel, send_due_automated_follow_ups, send_live_message, upsert_profile_from_response, verify_webhook_signature
 from .tasks import process_sentdm_webhook_event_task, send_due_automated_follow_ups_task
-from .views import AdminConversationMessagesAPIView, AdminMessageDetailAPIView, AdminMessageListAPIView, SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMWhatsAppConnectAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
+from .views import AdminConversationMessagesAPIView, AdminMessageDetailAPIView, AdminMessageListAPIView, SentDMInboundWebhookAPIView, SentDMProfileCreateAPIView, SentDMProfileListAPIView, SentDMProfileReadyWebhookAPIView, SentDMProfileSyncAPIView, SentDMWhatsAppConnectAPIView, SentDMSendMessageAPIView, SentDMSendSandboxMessageAPIView
 
 
 class DummyUser:
@@ -907,6 +907,92 @@ class SentDMWhatsAppPayloadTests(SimpleTestCase):
         payload = build_profile_payload(Organization(), User())
 
         self.assertNotIn("whatsapp_business_account", payload)
+
+
+class SentDMProfileSyncTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create(
+            phone_number="+15550003000",
+            email="sync-owner@example.com",
+            full_name="Sync Owner",
+        )
+        self.organization = Organization.objects.create(owner=self.user, name="Sync Realty")
+        self.profile = SentDMProfile.objects.create(
+            user=self.user,
+            organization=self.organization,
+            profile_id="profile_sync_test",
+            name="Sync Profile",
+            status="processing",
+        )
+        UserSubscription.objects.create(
+            user=self.user,
+            organization=self.organization,
+            product_id="chesera.pro.sync",
+            plan_type="pro",
+            medium="apple",
+            transaction_id="txn-sync-profile",
+            is_subscription_active=True,
+            expiry_date=timezone.now() + timedelta(days=30),
+        )
+
+    @patch("sentdm.services.SentDMClient")
+    def test_profile_sync_updates_assigned_number_and_local_phone_record(self, mocked_client):
+        mocked_client.return_value.get_sender_profile.return_value = {
+            "found": True,
+            "item": {
+                "id": self.profile.profile_id,
+                "name": "Sync Profile",
+                "smsMarkets": [
+                    {
+                        "country": "US",
+                        "numberType": "TEN_DLC",
+                        "status": "ACTIVE",
+                        "number": "+15559990001",
+                    }
+                ],
+            },
+        }
+        request = self.factory.post("/api/v1/sentdm/profiles/sync/")
+        force_authenticate(request, user=self.user)
+
+        response = SentDMProfileSyncAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.status, "approved")
+        self.assertEqual(self.profile.phone_number, "+15559990001")
+        self.assertTrue(
+            PhoneNumber.objects.filter(
+                organization=self.organization,
+                phone_number="+15559990001",
+            ).exists()
+        )
+
+    @override_settings(DEBUG=True, SENTDM_WEBHOOK_SECRET="")
+    def test_profile_ready_webhook_updates_number_when_payload_contains_it(self):
+        request = self.factory.post(
+            "/api/v1/sentdm/webhooks/profile-ready/",
+            {
+                "profile_id": self.profile.profile_id,
+                "status": "ACTIVE",
+                "sending_phone_number": "+15559990002",
+            },
+            format="json",
+        )
+
+        response = SentDMProfileReadyWebhookAPIView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.status, "approved")
+        self.assertEqual(self.profile.phone_number, "+15559990002")
+        self.assertTrue(
+            PhoneNumber.objects.filter(
+                organization=self.organization,
+                phone_number="+15559990002",
+            ).exists()
+        )
 
 
 class SentDMWebhookProcessingTests(TestCase):

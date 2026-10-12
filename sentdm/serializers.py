@@ -150,6 +150,17 @@ class SentDMCurrentProfileResponseSerializer(serializers.Serializer):
     data = SentDMProfileSerializer()
 
 
+class SentDMProfileSyncDataSerializer(serializers.Serializer):
+    profile = SentDMProfileSerializer()
+    sentdm_response = serializers.JSONField()
+
+
+class SentDMProfileSyncResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    data = SentDMProfileSyncDataSerializer()
+
+
 class SentDMProfileActionDataSerializer(serializers.Serializer):
     profile = SentDMProfileSerializer(allow_null=True)
     sentdm_response = serializers.JSONField()

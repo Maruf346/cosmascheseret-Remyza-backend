@@ -874,3 +874,29 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test sentdm.tests`
   - `.venv\Scripts\python.exe manage.py check`
 - Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-12 - Sent.dm Sender Profile Number Sync
+
+- Checked Sent.dm MCP for the current Chesera Sender Profile.
+- Current live profile returned by Sent.dm:
+  - profile id: `17c3a9a3-4f1c-4f61-bbe0-18ad49b787ef`
+  - SMS market: `US`
+  - number type: `TEN_DLC`
+  - status: `PENDING_REVIEW`
+  - no assigned phone number returned yet
+- Because the current Sent.dm response does not expose a number while the profile is pending review, the backend should not rely only on webhook delivery for number assignment.
+- Added manual sync endpoint:
+  - `POST /api/v1/sentdm/profiles/sync/`
+- Sync behavior:
+  - reads the authenticated user's local Sent.dm profile
+  - calls Sent.dm `/v3/sender-profiles/{profile_id}` first
+  - falls back to legacy `/v3/profiles/{profile_id}` if Sent.dm returns 404
+  - updates local profile status, assigned SMS number, WhatsApp number if returned, raw Sent.dm response, and `last_synced_at`
+  - creates/updates the local Chesera `PhoneNumber` record when Sent.dm returns an assigned number
+- Updated profile-ready webhook handling so if Sent.dm sends the assigned number in the callback payload, the backend stores it immediately.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm.tests.SentDMProfileSyncTests`
+  - `.venv\Scripts\python.exe manage.py test sentdm.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.

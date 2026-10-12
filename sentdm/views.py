@@ -431,6 +431,39 @@ class SentDMCurrentProfileAPIView(APIView):
         )
 
 
+class SentDMProfileSyncAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
+
+    @extend_schema(
+        tags=["Sent.dm"],
+        summary="Sync current Sender Profile",
+        description="Reads the current Sender Profile from Sent.dm and updates the local status, assigned SMS number, WhatsApp number, and raw provider response when available.",
+        responses={
+            200: SentDMProfileSyncResponseSerializer,
+            400: OpenApiResponse(description="Sent.dm returned an error."),
+            404: OpenApiResponse(description="No Sender Profile exists for the current user."),
+        },
+    )
+    def post(self, request):
+        profile = get_current_profile_or_404(request.user)
+        try:
+            profile, response = sync_profile_from_sentdm(profile)
+        except (ImproperlyConfigured, SentDMClientError) as exc:
+            return sentdm_error_response(exc)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Sent.dm Sender Profile synced successfully.",
+                "data": {
+                    "profile": SentDMProfileSerializer(profile).data,
+                    "sentdm_response": response,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class SentDMWhatsAppConnectAPIView(APIView):
     permission_classes = [IsAuthenticated, HasActivePaidSubscription]
     serializer_class = SentDMWhatsAppConnectSerializer
@@ -765,11 +798,25 @@ class SentDMProfileReadyWebhookAPIView(APIView):
         payload = event.payload
         profile_id = payload.get("profileId") or payload.get("profile_id")
         status_value = payload.get("status")
-        if profile_id and status_value:
-            SentDMProfile.objects.filter(profile_id=profile_id).update(
-                status=normalize_profile_status(status_value),
-                raw_response=payload,
-            )
+        if profile_id:
+            profile = SentDMProfile.objects.filter(profile_id=profile_id).first()
+            if profile:
+                update_fields = ["raw_response", "updated_at"]
+                profile.raw_response = payload
+                if status_value:
+                    profile.status = normalize_profile_status(status_value)
+                    update_fields.append("status")
+                phone_number = extract_sender_profile_phone_number(payload)
+                if phone_number and str(phone_number).startswith("+"):
+                    profile.phone_number = str(phone_number)
+                    update_fields.append("phone_number")
+                profile.save(update_fields=sorted(set(update_fields)))
+                if profile.organization and profile.phone_number:
+                    get_or_create_business_phone(
+                        profile,
+                        profile.organization,
+                        {"to_number": profile.phone_number, "from_number": ""},
+                    )
 
         return Response(
             {

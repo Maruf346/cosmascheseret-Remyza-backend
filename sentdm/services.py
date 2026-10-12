@@ -34,9 +34,64 @@ def normalize_profile_status(value):
     status_value = (value or SentDMProfileStatus.INCOMPLETE).lower()
     if status_value == "completed":
         return SentDMProfileStatus.APPROVED
+    if status_value in {"active", "approved", "ready"}:
+        return SentDMProfileStatus.APPROVED
+    if status_value in {"pending", "pending_review", "review", "in_review", "provisioning"}:
+        return SentDMProfileStatus.PROCESSING
     if status_value in SentDMProfileStatus.values:
         return status_value
     return SentDMProfileStatus.INCOMPLETE
+
+
+def get_nested_value(data, keys):
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in keys and value:
+                return value
+            nested = get_nested_value(value, keys)
+            if nested:
+                return nested
+    if isinstance(data, list):
+        for item in data:
+            nested = get_nested_value(item, keys)
+            if nested:
+                return nested
+    return ""
+
+
+def extract_profile_payload(response):
+    if not isinstance(response, dict):
+        return {}
+    return response.get("item") or response.get("data") or response
+
+
+def extract_sender_profile_phone_number(profile_payload):
+    return get_nested_value(
+        profile_payload,
+        {
+            "sending_phone_number",
+            "sendingPhoneNumber",
+            "phone_number",
+            "phoneNumber",
+            "sender_phone_number",
+            "senderPhoneNumber",
+            "number",
+        },
+    )
+
+
+def extract_sender_profile_status(profile_payload):
+    status_value = profile_payload.get("status") if isinstance(profile_payload, dict) else ""
+    if status_value:
+        return status_value
+    sms_markets = profile_payload.get("smsMarkets") or profile_payload.get("sms_markets") or []
+    if sms_markets:
+        return sms_markets[0].get("status") or ""
+    channels = profile_payload.get("channels") or {}
+    sms = channels.get("sms") if isinstance(channels, dict) else {}
+    if isinstance(sms, dict):
+        return sms.get("status") or ""
+    return ""
 
 
 def build_short_name(value, fallback="CHESERA"):
@@ -723,6 +778,52 @@ def complete_profile(profile, request):
     profile.last_synced_at = timezone.now()
     profile.save(update_fields=["raw_response", "last_synced_at", "updated_at"])
     return response
+
+
+def sync_profile_from_sentdm(profile):
+    client = SentDMClient()
+    try:
+        response = client.get_sender_profile(profile.profile_id)
+    except SentDMClientError as exc:
+        if exc.status_code != 404:
+            raise
+        response = client.get_profile(profile.profile_id)
+
+    profile_payload = extract_profile_payload(response)
+    status_value = extract_sender_profile_status(profile_payload)
+    phone_number = extract_sender_profile_phone_number(profile_payload)
+    whatsapp_number = get_response_whatsapp_phone_number(profile_payload)
+
+    update_fields = ["raw_response", "last_synced_at", "updated_at"]
+    profile.raw_response = response
+    profile.last_synced_at = timezone.now()
+
+    if status_value:
+        profile.status = normalize_profile_status(status_value)
+        update_fields.append("status")
+
+    if phone_number and str(phone_number).startswith("+"):
+        profile.phone_number = str(phone_number)
+        update_fields.append("phone_number")
+
+    if whatsapp_number:
+        profile.whatsapp_phone_number = str(whatsapp_number)
+        if profile.whatsapp_connection_source == SentDMWhatsAppConnectionSource.DIRECT:
+            profile.whatsapp_connection_status = SentDMWhatsAppConnectionStatus.ACTIVE
+            profile.whatsapp_connected_at = profile.whatsapp_connected_at or timezone.now()
+            update_fields.extend(["whatsapp_connection_status", "whatsapp_connected_at"])
+        update_fields.append("whatsapp_phone_number")
+
+    profile.save(update_fields=sorted(set(update_fields)))
+
+    if profile.organization and profile.phone_number:
+        get_or_create_business_phone(
+            profile,
+            profile.organization,
+            {"to_number": profile.phone_number, "from_number": ""},
+        )
+
+    return profile, response
 
 
 def extract_first_message_id(response):
