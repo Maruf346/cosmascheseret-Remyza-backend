@@ -289,6 +289,124 @@ Updated on 2026-10-10:
 - Exportable columns are `user_id`, `full_name`, `email`, `phone`, `business_name`, `business_type`, `plan`, `status`, `messages_sent_count`, `leads_count`, `joined_date`, `last_active`, and `chesera_number`.
 - XLSX export requires `openpyxl`, which is pinned in `requirements.txt`.
 
+## CURRENT PASSWORD CHANGE API
+
+Updated on 2026-10-10:
+
+- `POST /api/v1/me/password/change/` lets any authenticated user, including admins, change their own password.
+- Request fields:
+  - `current_password`
+  - `new_password`
+  - `confirm_new_password`
+- The endpoint verifies the current password, validates the new password with Django password validators, requires confirmation match, updates the password, and stores `last_password_changed_at`.
+
+## CURRENT ADMIN GENERAL SETTINGS API
+
+Updated on 2026-10-10:
+
+- Chesera has one singleton `GeneralSettings` row for platform-wide configuration.
+- Admin/staff users can retrieve and update it at `GET/PATCH /api/v1/admin/settings/general/`.
+- Settings fields are:
+  - `app_name`
+  - `support_email`
+  - `support_phone`
+  - `default_timezone`
+  - `date_format`
+  - `currency`
+  - `maintenance_mode`
+  - `maintenance_message`
+  - `app_logo`
+- `default_timezone` is validated as an IANA timezone.
+- `currency` is normalized to uppercase.
+- When maintenance mode is turned from off to on, the backend creates high-priority `system_alert` REST notifications for normal users.
+
+## CURRENT ADMIN PROFILE API
+
+Updated on 2026-10-10:
+
+- Admin/staff users can manage their own profile at `GET/PATCH /api/v1/admin/profile/`.
+- GET returns full name, email, profile picture, phone number, user type, staff status, and last activity.
+- PATCH allows only full name, email, and profile picture updates.
+- Phone number is intentionally read-only on this endpoint.
+
+## CURRENT ADMIN SUBSCRIPTION AND REVENUE ANALYTICS API
+
+Updated on 2026-10-11:
+
+- Admin/staff users can access subscription and revenue dashboard endpoints:
+  - `GET /api/v1/admin/subscriptions/`
+  - `GET /api/v1/admin/subscriptions/{user_id}/`
+  - `GET /api/v1/admin/revenue/monthly/`
+  - `GET /api/v1/admin/users/analytics/`
+- `GET /api/v1/admin/subscriptions/` is paginated and returns summary cards plus subscriber rows.
+- Subscription summary cards include:
+  - total revenue amount with current-month vs previous-month percent change
+  - active subscribers count with percent change
+  - trial users count with percent change
+  - suspended users count with percent change
+- Subscriber rows include name, email, profile picture, normalized plan (`pro`, `free`, `trial`), billing label, user active status, and joined date.
+- `GET /api/v1/admin/subscriptions/{user_id}/` returns subscriber detail with next billing cycle and lifetime spent.
+- `GET /api/v1/admin/revenue/monthly/` returns the last six calendar months as `{ month, year, revenue, currency }`.
+- `GET /api/v1/admin/revenue/analytics/` returns filterable revenue analytics.
+- Revenue analytics supports:
+  - `period=this_week`
+  - `period=this_month`
+  - `period=this_quarter`
+  - `period=this_year`
+  - `period=custom&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`
+- Revenue analytics summary includes new users, revenue amount, outbound messages sent, and lead conversion percent; each includes percent change compared to the previous equivalent period.
+- Revenue analytics message volume buckets adapt to the selected range:
+  - week: weekday buckets
+  - month or short custom range: daily buckets
+  - quarter or longer custom range: weekly buckets
+  - year: monthly buckets
+- Revenue analytics subscriber breakdown includes total subscribers, pro subscribers, and trial/free users with count and percentage.
+- Revenue analytics lead breakdown includes hot, warm, cold, and total leads with count/percentage. Total leads includes change percent versus the previous equivalent period.
+- `GET /api/v1/admin/users/analytics/` returns:
+  - total users
+  - active subscriptions
+  - current monthly revenue
+  - total leads captured
+  - monthly user signup counts for `year=this_year`, `year=last_year`, or `year=2024`.
+
+## CURRENT ADMIN MESSAGE MONITORING API
+
+Updated on 2026-10-11:
+
+- Admin/staff users can inspect messages through read-only endpoints:
+  - `GET /api/v1/admin/messages/`
+  - `GET /api/v1/admin/messages/{message_id}/`
+  - `GET /api/v1/admin/conversations/{conversation_id}/messages/`
+- Message monitoring is intentionally view-only; there is no admin/manual reply endpoint.
+- `GET /api/v1/admin/messages/` is paginated and returns summary counts:
+  - total messages
+  - delivered/sent messages
+  - failed messages
+- Message list rows include Chesera user details, contact/receiver details, message body, provider status, sent/received direction, timestamp, and conversation id.
+- `GET /api/v1/admin/messages/{message_id}/` includes sender/receiver detail, Chesera user flag, channel, content, provider metadata, Sent.dm message id, and conversation id.
+- `GET /api/v1/admin/conversations/{conversation_id}/messages/` returns a paginated conversation timeline with Chesera user sender details, conversation receiver details, total message count, and per-message sender/receiver/status metadata.
+
+## CURRENT SENT.DM SENDER PROFILE SYNC
+
+Updated on 2026-10-12:
+
+- Sent.dm MCP currently shows the live Chesera Sender Profile as `PENDING_REVIEW` for US `TEN_DLC`, with no assigned number returned yet.
+- Webhook-based number updates are supported when Sent.dm includes the assigned number in the profile-ready callback payload.
+- A manual sync endpoint also exists so production/testing does not depend only on webhook timing:
+  - `POST /api/v1/sentdm/profiles/sync/`
+- Sync endpoint behavior:
+  - requires authenticated paid user access
+  - loads the authenticated user's local Sent.dm profile
+  - fetches latest profile state from Sent.dm
+  - updates local profile status and assigned SMS phone number when available
+  - updates WhatsApp number fields when returned by Sent.dm
+  - stores raw provider response and `last_synced_at`
+  - creates the local Chesera `PhoneNumber` row once a valid assigned number is returned
+- Production demo flow after Sent.dm approval/number assignment:
+  - call `POST /api/v1/sentdm/profiles/sync/`
+  - check `GET /api/v1/me/chesera-number/`
+  - check the current Sent.dm profile endpoint to confirm profile status and number state
+
 ## CURRENT SWAGGER / OPENAPI DOCUMENTATION STANDARD
 
 Updated on 2026-10-08:

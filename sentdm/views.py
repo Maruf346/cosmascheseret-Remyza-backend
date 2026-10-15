@@ -3,13 +3,16 @@ from django.core.exceptions import ImproperlyConfigured
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from notifications.services import NotificationTemplates, safe_notify
 from .client import SentDMClient, SentDMClientError
-from .models import SentDMProfile
+from communications.models import Conversation
+from .choices import SentDMMessageDirection, SentDMMessageStatus
+from .models import SentDMMessage, SentDMProfile
 from .permissions import HasActivePaidSubscription
 from .serializers import *
 from .services import *
@@ -57,6 +60,247 @@ def get_current_profile_or_404(user):
     if not profile:
         raise NotFound("Sent.dm profile not found for current user.")
     return profile
+
+
+class AdminMessagePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class AdminMessageMixin:
+    pagination_class = AdminMessagePagination
+
+    def get_queryset(self):
+        return (
+            SentDMMessage.objects
+            .select_related(
+                "organization",
+                "organization__owner",
+                "profile",
+                "lead",
+                "lead__contact",
+                "conversation",
+            )
+            .order_by("-created_at")
+        )
+
+    def build_profile_picture_url(self, user, request):
+        if not user or not getattr(user, "profile_picture", None):
+            return None
+        url = user.profile_picture.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_owner(self, message):
+        if message.organization and getattr(message.organization, "owner", None):
+            return message.organization.owner
+        if message.profile and getattr(message.profile, "user", None):
+            return message.profile.user
+        return None
+
+    def serialize_user(self, user, request, *, is_chesera_user=True):
+        return {
+            "id": user.id if user else None,
+            "name": getattr(user, "full_name", "") if user else "",
+            "phone": getattr(user, "phone_number", "") if user else "",
+            "profile_pic": self.build_profile_picture_url(user, request),
+            "is_chesera_user": bool(user and is_chesera_user),
+        }
+
+    def get_contact_name(self, message):
+        lead = message.lead
+        if not lead:
+            return ""
+        contact = getattr(lead, "contact", None)
+        return (
+            getattr(contact, "full_name", "")
+            or getattr(lead, "full_name", "")
+            or getattr(contact, "business_name", "")
+            or ""
+        )
+
+    def get_contact_phone(self, message):
+        lead = message.lead
+        if lead and lead.contact_number:
+            return lead.contact_number
+        if message.direction == SentDMMessageDirection.OUTBOUND:
+            return message.to_number
+        return message.from_number
+
+    def serialize_contact(self, message):
+        lead = message.lead
+        return {
+            "id": lead.id if lead else None,
+            "name": self.get_contact_name(message),
+            "phone": self.get_contact_phone(message),
+        }
+
+    def normalize_direction(self, message):
+        if message.direction == SentDMMessageDirection.OUTBOUND:
+            return "sent"
+        return "received"
+
+    def get_sender(self, message, request):
+        owner = self.get_owner(message)
+        if message.direction == SentDMMessageDirection.OUTBOUND:
+            return self.serialize_user(owner, request, is_chesera_user=True)
+        contact = self.serialize_contact(message)
+        return {
+            "id": contact["id"],
+            "name": contact["name"],
+            "phone": contact["phone"],
+            "profile_pic": None,
+            "is_chesera_user": False,
+        }
+
+    def get_receiver(self, message, request):
+        owner = self.get_owner(message)
+        if message.direction == SentDMMessageDirection.OUTBOUND:
+            return self.serialize_contact(message)
+        return {
+            "id": owner.id if owner else None,
+            "name": getattr(owner, "full_name", "") if owner else "",
+            "phone": getattr(owner, "phone_number", "") if owner else "",
+        }
+
+    def serialize_message_list_item(self, message, request):
+        return {
+            "id": message.id,
+            "user": self.serialize_user(self.get_owner(message), request, is_chesera_user=True),
+            "contact": self.serialize_contact(message),
+            "receiver": self.get_receiver(message, request),
+            "message": message.body,
+            "status": message.status,
+            "direction": self.normalize_direction(message),
+            "timestamp": message.created_at,
+            "conversation_id": message.conversation_id,
+        }
+
+    def serialize_message_detail(self, message, request):
+        return {
+            **self.serialize_message_list_item(message, request),
+            "from_user": self.get_sender(message, request),
+            "to": self.get_receiver(message, request),
+            "content": message.body,
+            "metadata": message.raw_response or {},
+            "channel": message.channel,
+            "sent_message_id": message.sent_message_id,
+        }
+
+    def get_summary(self):
+        queryset = SentDMMessage.objects.all()
+        return {
+            "total_messages": queryset.count(),
+            "delivered_or_sent_messages": queryset.filter(
+                status__in=[SentDMMessageStatus.SENT, SentDMMessageStatus.DELIVERED]
+            ).count(),
+            "failed_messages": queryset.filter(status=SentDMMessageStatus.FAILED).count(),
+        }
+
+
+class AdminMessageListAPIView(AdminMessageMixin, APIView):
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        tags=["Admin - Messages"],
+        summary="List messages",
+        description="Returns admin message summary counts and a paginated read-only list of Sent.dm inbound/outbound messages.",
+        responses={200: AdminMessageListResponseSerializer},
+    )
+    def get(self, request):
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(self.get_queryset(), request, view=self)
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "summary": self.get_summary(),
+                    "count": paginator.page.paginator.count,
+                    "next": paginator.get_next_link(),
+                    "previous": paginator.get_previous_link(),
+                    "results": [self.serialize_message_list_item(message, request) for message in page],
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminMessageDetailAPIView(AdminMessageMixin, APIView):
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        tags=["Admin - Messages"],
+        summary="Get message details",
+        description="Returns one Sent.dm message with sender, receiver, metadata, and conversation id.",
+        responses={200: AdminMessageDetailResponseSerializer, 404: OpenApiResponse(description="Message not found.")},
+    )
+    def get(self, request, message_id):
+        message = self.get_queryset().filter(id=message_id).first()
+        if not message:
+            raise NotFound("Message not found.")
+        return Response({"success": True, "data": self.serialize_message_detail(message, request)}, status=status.HTTP_200_OK)
+
+
+class AdminConversationMessagesAPIView(AdminMessageMixin, APIView):
+    permission_classes = [IsAdminUser]
+
+    def serialize_conversation_message(self, message, request):
+        return {
+            "id": message.id,
+            "sender": self.get_sender(message, request),
+            "receiver": self.get_receiver(message, request),
+            "message": message.body,
+            "timestamp": message.created_at,
+            "status": {
+                "value": message.status,
+                "channel": message.channel,
+                "sent_message_id": message.sent_message_id,
+            },
+            "direction": self.normalize_direction(message),
+            "metadata": message.raw_response or {},
+        }
+
+    @extend_schema(
+        tags=["Admin - Messages"],
+        summary="Get conversation messages",
+        description="Returns a paginated read-only conversation message timeline for admin inbox review.",
+        responses={200: AdminConversationMessagesResponseSerializer, 404: OpenApiResponse(description="Conversation not found.")},
+    )
+    def get(self, request, conversation_id):
+        conversation = (
+            Conversation.objects
+            .select_related("organization", "organization__owner", "lead", "lead__contact")
+            .filter(id=conversation_id)
+            .first()
+        )
+        if not conversation:
+            raise NotFound("Conversation not found.")
+
+        queryset = self.get_queryset().filter(conversation_id=conversation_id).order_by("created_at")
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        first_message = page[0] if page else queryset.first()
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "conversation_id": conversation.id,
+                    "chesera_user": self.serialize_user(conversation.organization.owner, request, is_chesera_user=True),
+                    "receiver": self.serialize_contact(first_message) if first_message else {
+                        "id": conversation.lead_id,
+                        "name": getattr(conversation.lead, "full_name", "") if conversation.lead else "",
+                        "phone": getattr(conversation.lead, "contact_number", "") if conversation.lead else "",
+                    },
+                    "total_messages": queryset.count(),
+                    "count": paginator.page.paginator.count,
+                    "next": paginator.get_next_link(),
+                    "previous": paginator.get_previous_link(),
+                    "results": [self.serialize_conversation_message(message, request) for message in page],
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class SentDMAccountCheckAPIView(APIView):
@@ -183,6 +427,39 @@ class SentDMCurrentProfileAPIView(APIView):
     def get(self, request):
         return Response(
             {"success": True, "data": SentDMProfileSerializer(get_current_profile_or_404(request.user)).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class SentDMProfileSyncAPIView(APIView):
+    permission_classes = [IsAuthenticated, HasActivePaidSubscription]
+
+    @extend_schema(
+        tags=["Sent.dm"],
+        summary="Sync current Sender Profile",
+        description="Reads the current Sender Profile from Sent.dm and updates the local status, assigned SMS number, WhatsApp number, and raw provider response when available.",
+        responses={
+            200: SentDMProfileSyncResponseSerializer,
+            400: OpenApiResponse(description="Sent.dm returned an error."),
+            404: OpenApiResponse(description="No Sender Profile exists for the current user."),
+        },
+    )
+    def post(self, request):
+        profile = get_current_profile_or_404(request.user)
+        try:
+            profile, response = sync_profile_from_sentdm(profile)
+        except (ImproperlyConfigured, SentDMClientError) as exc:
+            return sentdm_error_response(exc)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Sent.dm Sender Profile synced successfully.",
+                "data": {
+                    "profile": SentDMProfileSerializer(profile).data,
+                    "sentdm_response": response,
+                },
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -521,11 +798,25 @@ class SentDMProfileReadyWebhookAPIView(APIView):
         payload = event.payload
         profile_id = payload.get("profileId") or payload.get("profile_id")
         status_value = payload.get("status")
-        if profile_id and status_value:
-            SentDMProfile.objects.filter(profile_id=profile_id).update(
-                status=normalize_profile_status(status_value),
-                raw_response=payload,
-            )
+        if profile_id:
+            profile = SentDMProfile.objects.filter(profile_id=profile_id).first()
+            if profile:
+                update_fields = ["raw_response", "updated_at"]
+                profile.raw_response = payload
+                if status_value:
+                    profile.status = normalize_profile_status(status_value)
+                    update_fields.append("status")
+                phone_number = extract_sender_profile_phone_number(payload)
+                if phone_number and str(phone_number).startswith("+"):
+                    profile.phone_number = str(phone_number)
+                    update_fields.append("phone_number")
+                profile.save(update_fields=sorted(set(update_fields)))
+                if profile.organization and profile.phone_number:
+                    get_or_create_business_phone(
+                        profile,
+                        profile.organization,
+                        {"to_number": profile.phone_number, "from_number": ""},
+                    )
 
         return Response(
             {

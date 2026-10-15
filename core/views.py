@@ -1,14 +1,24 @@
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
-from rest_framework.viewsets import ModelViewSet
+from django.db import transaction
+from rest_framework import status
+from rest_framework.permissions import IsAdminUser
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from core.utils.viewsets import OwnModelViewSet
-from .models import BusinessType, Industry
+from .models import BusinessType, GeneralSettings, Industry
 from .permissions import AdminWritePermission
 from .serializers import (
     BusinessTypeSerializer,
     BusinessTypeListResponseSerializer,
+    GeneralSettingsResponseSerializer,
+    GeneralSettingsSerializer,
     IndustrySerializer,
     IndustryListResponseSerializer,
 )
+from accounts.choices import UserType
+from accounts.models import User
+from notifications.models import NotificationPriority, NotificationType
+from notifications.services import NotificationService
 
 
 class BusinessTypeViewSet(OwnModelViewSet):
@@ -21,6 +31,72 @@ class IndustryViewSet(OwnModelViewSet):
     serializer_class = IndustrySerializer
     permission_classes = [AdminWritePermission]
     queryset = Industry.objects.filter(is_active=True).order_by("sort_order", "name")
+
+
+class AdminGeneralSettingsAPIView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get_object(self):
+        return GeneralSettings.get_solo()
+
+    def notify_users_about_maintenance(self, settings_obj):
+        users = User.objects.filter(is_staff=False, is_superuser=False).exclude(user_type=UserType.ADMIN)
+        for user in users.iterator():
+            NotificationService.create_notification(
+                user=user,
+                notification_type=NotificationType.SYSTEM_ALERT,
+                title="Maintenance mode enabled",
+                body=settings_obj.maintenance_message,
+                data={"maintenance_mode": True},
+                priority=NotificationPriority.HIGH,
+                push_websocket=False,
+            )
+
+    @extend_schema(
+        tags=["Admin - Settings"],
+        summary="Get general settings",
+        description="Returns the single platform-wide general settings configuration.",
+        responses={200: GeneralSettingsResponseSerializer},
+    )
+    def get(self, request):
+        settings_obj = self.get_object()
+        return Response(
+            {
+                "success": True,
+                "message": "General settings retrieved successfully.",
+                "data": GeneralSettingsSerializer(settings_obj, context={"request": request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        tags=["Admin - Settings"],
+        summary="Update general settings",
+        description="Partially updates the single platform-wide general settings configuration. If maintenance mode is turned on, users receive a maintenance notification.",
+        request=GeneralSettingsSerializer,
+        responses={
+            200: GeneralSettingsResponseSerializer,
+            400: OpenApiResponse(description="Invalid settings payload."),
+        },
+    )
+    def patch(self, request):
+        settings_obj = self.get_object()
+        was_in_maintenance = settings_obj.maintenance_mode
+        serializer = GeneralSettingsSerializer(settings_obj, data=request.data, partial=True, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        settings_obj = serializer.save()
+
+        if not was_in_maintenance and settings_obj.maintenance_mode:
+            transaction.on_commit(lambda: self.notify_users_about_maintenance(settings_obj))
+
+        return Response(
+            {
+                "success": True,
+                "message": "General settings updated successfully.",
+                "data": GeneralSettingsSerializer(settings_obj, context={"request": request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 

@@ -1,5 +1,7 @@
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from rest_framework import serializers
-from .models import BusinessType, Industry, FreeTrailPhoneNumber, UserFreeTrailNumber, TollFreeVerification
+from .models import BusinessType, GeneralSettings, Industry, FreeTrailPhoneNumber, UserFreeTrailNumber, TollFreeVerification
 from .choices import (
     OptInType,
     UseCaseCategory,
@@ -30,6 +32,52 @@ class IndustryListResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField()
     count = serializers.IntegerField()
     data = IndustrySerializer(many=True)
+
+
+class GeneralSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GeneralSettings
+        fields = (
+            "id",
+            "app_name",
+            "support_email",
+            "support_phone",
+            "default_timezone",
+            "date_format",
+            "currency",
+            "maintenance_mode",
+            "maintenance_message",
+            "app_logo",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_default_timezone(self, value):
+        timezone_value = (value or "").strip()
+        if not timezone_value:
+            raise serializers.ValidationError("Default timezone is required.")
+        try:
+            ZoneInfo(timezone_value)
+        except ZoneInfoNotFoundError as exc:
+            raise serializers.ValidationError(
+                "Enter a valid IANA timezone name, for example 'America/New_York', 'America/Chicago', 'Asia/Dhaka', or 'UTC'."
+            ) from exc
+        return timezone_value
+
+    def validate_currency(self, value):
+        currency = (value or "").strip().upper()
+        if not currency:
+            raise serializers.ValidationError("Currency is required.")
+        if len(currency) > 10:
+            raise serializers.ValidationError("Currency must be 10 characters or fewer.")
+        return currency
+
+
+class GeneralSettingsResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    data = GeneralSettingsSerializer()
 
 
 

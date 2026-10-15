@@ -42,6 +42,34 @@ class SystemSetting(BaseModel):
     description = models.TextField(blank=True)
     is_public = models.BooleanField(default=False)
 
+
+class GeneralSettings(BaseModel):
+    singleton = models.BooleanField(default=True, unique=True, editable=False)
+    app_name = models.CharField(max_length=100, default="Chesera")
+    support_email = models.EmailField(blank=True)
+    support_phone = models.CharField(max_length=30, blank=True)
+    default_timezone = models.CharField(max_length=64, default="UTC")
+    date_format = models.CharField(max_length=50, default="MM/DD/YYYY")
+    currency = models.CharField(max_length=10, default="USD")
+    maintenance_mode = models.BooleanField(default=False)
+    maintenance_message = models.TextField(
+        blank=True,
+        default="The platform is currently under maintenance. Please check back shortly.",
+    )
+    app_logo = models.ImageField(upload_to="settings/app_logo/", blank=True, null=True)
+
+    class Meta:
+        verbose_name = "General Setting"
+        verbose_name_plural = "General Settings"
+
+    def __str__(self):
+        return self.app_name
+
+    @classmethod
+    def get_solo(cls):
+        settings_obj, _ = cls.objects.get_or_create(singleton=True)
+        return settings_obj
+
 class APIKey(BaseModel):
     organization = models.ForeignKey("business.Organization", on_delete=models.CASCADE, related_name="api_keys")
     name = models.CharField(max_length=100)

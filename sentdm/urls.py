@@ -3,10 +3,14 @@ from django.urls import path
 from .views import *
 
 urlpatterns = [
+    path("admin/messages/", AdminMessageListAPIView.as_view(), name="admin-message-list"),
+    path("admin/messages/<int:message_id>/", AdminMessageDetailAPIView.as_view(), name="admin-message-detail"),
+    path("admin/conversations/<int:conversation_id>/messages/", AdminConversationMessagesAPIView.as_view(), name="admin-conversation-messages"),
     path("sentdm/account/check/", SentDMAccountCheckAPIView.as_view(), name="sentdm-account-check"),
     path("sentdm/profiles/", SentDMProfileListAPIView.as_view(), name="sentdm-profile-list"),
     path("sentdm/profiles/create/", SentDMProfileCreateAPIView.as_view(), name="sentdm-profile-create"),
     path("sentdm/profiles/current/", SentDMCurrentProfileAPIView.as_view(), name="sentdm-profile-current"),
+    path("sentdm/profiles/sync/", SentDMProfileSyncAPIView.as_view(), name="sentdm-profile-sync"),
     path("sentdm/profiles/complete/", SentDMProfileCompleteAPIView.as_view(), name="sentdm-profile-complete"),
     path("sentdm/profiles/whatsapp/connect/", SentDMWhatsAppConnectAPIView.as_view(), name="sentdm-profile-whatsapp-connect"),
     path("sentdm/compliance/readiness/", SentDMComplianceReadinessAPIView.as_view(), name="sentdm-compliance-readiness"),
@@ -14,7 +18,7 @@ urlpatterns = [
     path("sentdm/messages/send-sandbox/", SentDMSendSandboxMessageAPIView.as_view(), name="sentdm-message-send-sandbox"),
     # Enable only after Sent.dm live credentials, approved Sender Profiles, webhook secret,
     # and real lead/conversation routing are ready. Then comment out send-sandbox from client usage.
-    # path("sentdm/messages/send/", SentDMSendMessageAPIView.as_view(), name="sentdm-message-send"),
+    path("sentdm/messages/send/", SentDMSendMessageAPIView.as_view(), name="sentdm-message-send"),
     path("sentdm/webhooks/inbound/", SentDMInboundWebhookAPIView.as_view(), name="sentdm-inbound-webhook"),
     path("sentdm/webhooks/profile-ready/", SentDMProfileReadyWebhookAPIView.as_view(), name="sentdm-profile-ready-webhook"),
 ]

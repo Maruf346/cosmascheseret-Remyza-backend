@@ -1,6 +1,8 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User, OTPVerification
@@ -249,10 +251,79 @@ class AdminLoginResponseSerializer(serializers.Serializer):
     data = AdminLoginDataSerializer()
 
 
+class AdminProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "full_name",
+            "email",
+            "phone_number",
+            "profile_picture",
+            "user_type",
+            "is_staff",
+            "last_activity_at",
+        )
+        read_only_fields = ("id", "phone_number", "user_type", "is_staff", "last_activity_at")
+
+    def validate_email(self, value):
+        email = (value or "").strip().lower()
+        if not email:
+            return None
+        queryset = User.objects.filter(email__iexact=email)
+        if self.instance:
+            queryset = queryset.exclude(id=self.instance.id)
+        if queryset.exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return email
+
+    def validate_full_name(self, value):
+        full_name = (value or "").strip()
+        if not full_name:
+            raise serializers.ValidationError("Full name cannot be empty.")
+        return full_name
+
+
+class AdminProfileResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    data = AdminProfileSerializer()
+
+
 class CurrentUserUpdateResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField()
     message = serializers.CharField()
     data = CurrentUserSerializer()
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+    confirm_new_password = serializers.CharField(write_only=True)
+
+    def validate_current_password(self, value):
+        user = self.context["request"].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Current password is incorrect.")
+        return value
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["confirm_new_password"]:
+            raise serializers.ValidationError({"confirm_new_password": "New password and confirmation do not match."})
+        validate_password(attrs["new_password"], self.context["request"].user)
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.context["request"].user
+        user.set_password(self.validated_data["new_password"])
+        user.last_password_changed_at = timezone.now()
+        user.save(update_fields=["password", "last_password_changed_at", "updated_at"])
+        return user
+
+
+class ChangePasswordResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
 
 
 class CurrentUserSubscriptionSummarySerializer(serializers.Serializer):

@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from .views import (
+    AdminGeneralSettingsAPIView,
     BusinessTypeViewSet,
     IndustryViewSet,
     # Twilio/free-trial number routes are disabled while Chesera moves messaging to Sent.dm.
@@ -16,6 +17,7 @@ router.register("industries", IndustryViewSet, basename="industry")
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("admin/settings/general/", AdminGeneralSettingsAPIView.as_view(), name="admin-general-settings"),
 
     # Twilio inbound webhook is hidden from Swagger during Sent.dm migration.
     # path("twilio/webhook/", TwilioWebhookHandler.as_view(), name="twilio-webhook"),

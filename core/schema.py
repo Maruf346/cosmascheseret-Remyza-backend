@@ -8,7 +8,7 @@ class TaggedAutoSchema(AutoSchema):
         ("/api/schema/", "API Schema"),
         ("/api/v1/admin/auth/", "Auth - Admin"),
         ("/api/v1/client/auth/", "Auth - User"),
-        ("/api/v1/auth/token/", "Auth - Token"),
+        ("/api/v1/auth/token/", "Auth - Shared"),
         ("/api/v1/me/plan-and-progress/", "User Plan Progress"),
         ("/api/v1/me/business-profile/", "Business"),
         ("/api/v1/me/business-settings/", "Business"),

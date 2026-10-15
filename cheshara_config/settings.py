@@ -94,7 +94,7 @@ SPECTACULAR_SETTINGS = {
     'TAGS': [
         {'name': 'Auth - Admin', 'description': 'Admin authentication endpoints.'},
         {'name': 'Auth - User', 'description': 'Client OTP authentication endpoints.'},
-        {'name': 'Auth - Token', 'description': 'JWT refresh and verification endpoints.'},
+        {'name': 'Auth - Shared', 'description': 'JWT refresh and verification endpoints.'},
         {'name': 'User Account', 'description': 'Current user profile and account management.'},
         {'name': 'User Plan Progress', 'description': 'Current user subscription and onboarding progress.'},
         {'name': 'Business', 'description': 'Business management, automation and reply settings.'},

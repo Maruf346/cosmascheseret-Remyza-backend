@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    BusinessType, Notification, AuditLog, SystemSetting, APIKey, Industry,
+    BusinessType, GeneralSettings, Notification, AuditLog, SystemSetting, APIKey, Industry,
     TwilioConfiguration, FreeTrailPhoneNumber, UserFreeTrailNumber, TwilioWebhookLog, TollFreeVerification,
 )
 
@@ -48,6 +48,15 @@ class SystemSettingAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
     ordering = ("key",)
     list_per_page = 25
+
+
+@admin.register(GeneralSettings)
+class GeneralSettingsAdmin(admin.ModelAdmin):
+    list_display = ("id", "app_name", "support_email", "default_timezone", "currency", "maintenance_mode", "updated_at")
+    readonly_fields = ("created_at", "updated_at")
+
+    def has_add_permission(self, request):
+        return not GeneralSettings.objects.exists()
 
 
 @admin.register(APIKey)

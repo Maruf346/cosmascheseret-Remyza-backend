@@ -35,6 +35,10 @@ from .serializers import (
     AdminUserListResponseSerializer,
     AdminUserToggleActiveResponseSerializer,
     AdminUserToggleActiveSerializer,
+    AdminProfileResponseSerializer,
+    AdminProfileSerializer,
+    ChangePasswordResponseSerializer,
+    ChangePasswordSerializer,
     ClientSendOTPResponseSerializer,
     ClientSignupSerializer,
     ClientSignupResponseSerializer,
@@ -206,6 +210,77 @@ class CustomTokenVerifyView(TokenVerifyView):
             {
                 "success": True,
                 "message": "Token is valid.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ChangePasswordAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["Auth - Shared"],
+        summary="Change password",
+        description="Changes the authenticated user's password after verifying the current password. Works for both normal users and admin users.",
+        request=ChangePasswordSerializer,
+        responses={
+            200: ChangePasswordResponseSerializer,
+            400: OpenApiResponse(description="Current password is incorrect, passwords do not match, or new password is invalid."),
+            401: OpenApiResponse(description="Authentication required."),
+        },
+    )
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {
+                "success": True,
+                "message": "Password changed successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminProfileAPIView(APIView):
+    permission_classes = [IsAdminUser]
+
+    @extend_schema(
+        tags=["Admin - Profile"],
+        summary="Get admin profile",
+        description="Returns the authenticated admin's profile. Phone number is returned but cannot be updated through this endpoint.",
+        responses={200: AdminProfileResponseSerializer, 401: OpenApiResponse(description="Authentication required.")},
+    )
+    def get(self, request):
+        return Response(
+            {
+                "success": True,
+                "message": "Admin profile retrieved successfully.",
+                "data": AdminProfileSerializer(request.user, context={"request": request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        tags=["Admin - Profile"],
+        summary="Update admin profile",
+        description="Partially updates the authenticated admin's full name, email, and profile picture. Phone number is read-only.",
+        request=AdminProfileSerializer,
+        responses={
+            200: AdminProfileResponseSerializer,
+            400: OpenApiResponse(description="Invalid admin profile payload."),
+            401: OpenApiResponse(description="Authentication required."),
+        },
+    )
+    def patch(self, request):
+        serializer = AdminProfileSerializer(request.user, data=request.data, partial=True, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        admin_user = serializer.save()
+        return Response(
+            {
+                "success": True,
+                "message": "Admin profile updated successfully.",
+                "data": AdminProfileSerializer(admin_user, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )
@@ -1223,7 +1298,7 @@ AdminLoginAPIView = extend_schema_view(
 
 CustomTokenRefreshView = extend_schema_view(
     post=extend_schema(
-        tags=["Auth - Token"],
+        tags=["Auth - Shared"],
         summary="Refresh JWT token",
         description="Accepts a valid refresh token and returns a fresh access token.",
         request=TokenRefreshSerializer,
@@ -1236,7 +1311,7 @@ CustomTokenRefreshView = extend_schema_view(
 
 CustomTokenVerifyView = extend_schema_view(
     post=extend_schema(
-        tags=["Auth - Token"],
+        tags=["Auth - Shared"],
         summary="Verify JWT token",
         description="Checks whether a JWT token is currently valid.",
         request=TokenVerifySerializer,

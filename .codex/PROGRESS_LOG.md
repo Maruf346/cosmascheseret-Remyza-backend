@@ -119,7 +119,7 @@ Current Swagger direction:
 Completed:
 
 - Added view-level drf-spectacular documentation for active API endpoints using `extend_schema` and `extend_schema_view`.
-- Documented active auth endpoints under `Auth - User`, `Auth - Admin`, and `Auth - Token`.
+- Documented active auth endpoints under `Auth - User`, `Auth - Admin`, and `Auth - Shared`.
 - Documented current user and plan/progress endpoints.
 - Documented active business profile, business settings, onboarding status, and notification endpoints.
 - Documented active reference-data endpoints for business types and industries.
@@ -783,3 +783,120 @@ Validation run:
   - `.venv\Scripts\python.exe manage.py test accounts.tests.AdminUserManagementAPIViewTests`
   - `.venv\Scripts\python.exe manage.py check`
 - Local note: the current venv does not yet have `openpyxl` installed; run `.venv\Scripts\pip.exe install -r requirements.txt` before locally testing `format=xlsx`.
+
+## 2026-10-10 - Authenticated Password Change API
+
+- Added `POST /api/v1/me/password/change/` for both normal users and admin users.
+- Request body requires:
+  - `current_password`
+  - `new_password`
+  - `confirm_new_password`
+- Endpoint verifies the current password, checks that new password and confirmation match, runs Django password validation, updates the password, and sets `last_password_changed_at`.
+- Added Swagger request/response documentation.
+- Added regression tests for success, wrong current password, and mismatched confirmation.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q accounts`
+  - `.venv\Scripts\python.exe manage.py test accounts.tests.ChangePasswordAPIViewTests`
+  - `.venv\Scripts\python.exe manage.py check`
+
+## 2026-10-10 - Admin General Settings and Admin Profile API
+
+- Added singleton platform general settings via `core.GeneralSettings`.
+- Added migration `core/migrations/0029_generalsettings.py`.
+- Added admin/staff-only endpoint `GET/PATCH /api/v1/admin/settings/general/`.
+- General settings include app name, support email, support phone, default timezone, date format, currency, maintenance mode, maintenance message, and app logo.
+- The settings endpoint always reads/updates one shared settings row, even with many admins.
+- Turning maintenance mode from off to on creates high-priority `system_alert` REST notifications for normal users.
+- Added admin/staff-only endpoint `GET/PATCH /api/v1/admin/profile/`.
+- Admin profile GET returns full name, email, profile picture, phone number, user type, staff status, and last activity.
+- Admin profile PATCH allows full name, email, and profile picture updates only; phone number remains read-only.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q core accounts`
+  - `.venv\Scripts\python.exe manage.py test core.tests.AdminGeneralSettingsAPIViewTests accounts.tests.AdminProfileAPIViewTests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-11 - Admin Subscription, Revenue, and User Analytics APIs
+
+- Added admin/staff-only subscription dashboard endpoints:
+  - `GET /api/v1/admin/subscriptions/`
+  - `GET /api/v1/admin/subscriptions/{user_id}/`
+  - `GET /api/v1/admin/revenue/monthly/`
+  - `GET /api/v1/admin/users/analytics/`
+- Subscriber list returns summary cards for total revenue, active subscribers, trial users, and suspended users, each with current-month vs previous-month percent change.
+- Subscriber rows include name, email, profile picture, plan (`pro`, `free`, `trial`), billing label, active status, and joined date.
+- Subscriber retrieve adds phone/status, next billing cycle, lifetime spent, currency, subscription identifiers, product/store status, and subscription dates.
+- Monthly revenue endpoint returns the last six calendar months with revenue values in USD.
+- User analytics endpoint returns total users, active subscription count, current monthly revenue, total leads captured, and monthly user signup ratios for `this_year`, `last_year`, or a numeric year.
+- Updated existing subscription list tests to assert against the paginated response envelope.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q subscription`
+  - `.venv\Scripts\python.exe manage.py test subscription.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-11 - Filterable Admin Revenue Analytics API
+
+- Added admin/staff-only endpoint `GET /api/v1/admin/revenue/analytics/`.
+- Supported filters:
+  - `period=this_week`
+  - `period=this_month`
+  - `period=this_quarter`
+  - `period=this_year`
+  - `period=custom&from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`
+- Summary returns new users, revenue, outbound messages sent, and lead conversion percent, each with percent change versus the previous equivalent period.
+- Message volume analytics adapts buckets by range:
+  - week: weekday buckets
+  - month or short custom range: daily buckets
+  - quarter or longer custom range: weekly buckets
+  - year: monthly buckets
+- Subscriber breakdown returns total subscribers, pro subscribers, and trial/free users with count and percentage.
+- Lead breakdown returns hot, warm, cold, and total leads with count/percentage; total leads also includes change percent versus the previous equivalent period.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q subscription`
+  - `.venv\Scripts\python.exe manage.py test subscription.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-11 - Admin Message Monitoring and Conversation Inbox APIs
+
+- Added admin/staff-only, view-only message monitoring endpoints:
+  - `GET /api/v1/admin/messages/`
+  - `GET /api/v1/admin/messages/{message_id}/`
+  - `GET /api/v1/admin/conversations/{conversation_id}/messages/`
+- Message list returns summary counts for total messages, delivered/sent messages, and failed messages.
+- Message list rows include Chesera user name/profile picture, contact/receiver name and number, message body, status, sent/received direction, timestamp, and conversation id.
+- Message detail includes sender, receiver, Chesera-user flag, channel, message content, provider metadata, Sent.dm message id, status, direction, timestamp, and conversation id.
+- Conversation endpoint returns Chesera user sender details, receiver details, total messages, and paginated conversation message rows.
+- Kept admin inbox read-only; no manual reply endpoint was added.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.
+
+## 2026-10-12 - Sent.dm Sender Profile Number Sync
+
+- Checked Sent.dm MCP for the current Chesera Sender Profile.
+- Current live profile returned by Sent.dm:
+  - profile id: `17c3a9a3-4f1c-4f61-bbe0-18ad49b787ef`
+  - SMS market: `US`
+  - number type: `TEN_DLC`
+  - status: `PENDING_REVIEW`
+  - no assigned phone number returned yet
+- Because the current Sent.dm response does not expose a number while the profile is pending review, the backend should not rely only on webhook delivery for number assignment.
+- Added manual sync endpoint:
+  - `POST /api/v1/sentdm/profiles/sync/`
+- Sync behavior:
+  - reads the authenticated user's local Sent.dm profile
+  - calls Sent.dm `/v3/sender-profiles/{profile_id}` first
+  - falls back to legacy `/v3/profiles/{profile_id}` if Sent.dm returns 404
+  - updates local profile status, assigned SMS number, WhatsApp number if returned, raw Sent.dm response, and `last_synced_at`
+  - creates/updates the local Chesera `PhoneNumber` record when Sent.dm returns an assigned number
+- Updated profile-ready webhook handling so if Sent.dm sends the assigned number in the callback payload, the backend stores it immediately.
+- Verification passed:
+  - `.venv\Scripts\python.exe -m compileall -q sentdm`
+  - `.venv\Scripts\python.exe manage.py test sentdm.tests.SentDMProfileSyncTests`
+  - `.venv\Scripts\python.exe manage.py test sentdm.tests`
+  - `.venv\Scripts\python.exe manage.py check`
+- Note: `.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` still reports unrelated pre-existing CRM migration drift only.

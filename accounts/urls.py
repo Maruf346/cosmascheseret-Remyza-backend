@@ -4,9 +4,11 @@ from .views import (
     ClientSendOTPAPIView,
     ClientVerifyOTPAPIView,
     AdminLoginAPIView,
+    AdminProfileAPIView,
     AdminUserDetailAPIView,
     AdminUserExportCSVAPIView,
     AdminUserListAPIView,
+    ChangePasswordAPIView,
     CurrentUserPlanAndProgressAPIView,
     CurrentUserCheseraNumberAPIView,
     CustomTokenRefreshView,
@@ -22,6 +24,7 @@ urlpatterns = [
     path("client/auth/send-otp/", ClientSendOTPAPIView.as_view(), name="client-send-otp"),
     path("client/auth/verify-otp/", ClientVerifyOTPAPIView.as_view(), name="client-verify-otp"),
     path("admin/auth/login/", AdminLoginAPIView.as_view(), name="admin-auth-login"),
+    path("admin/profile/", AdminProfileAPIView.as_view(), name="admin-profile"),
     path("admin/users/", AdminUserListAPIView.as_view(), name="admin-user-list"),
     path("admin/users/export/", AdminUserExportCSVAPIView.as_view(), name="admin-user-export"),
     path("admin/users/<int:user_id>/", AdminUserDetailAPIView.as_view(), name="admin-user-detail"),
@@ -29,6 +32,7 @@ urlpatterns = [
     path("auth/token/verify/", CustomTokenVerifyView.as_view(), name="token-verify"),
 
     path("me/", CurrentUserAPIView.as_view(), name="user-info"),
+    path("me/password/change/", ChangePasswordAPIView.as_view(), name="change-password"),
     # Twilio-backed free-trial number claim is hidden from Swagger during Sent.dm migration.
     # path("me/claim-free-trail-number/", ClaimFreeTrailNumber.as_view(), name="claim-user-free-trail"),
     path("me/plan-and-progress/", CurrentUserPlanAndProgressAPIView.as_view(), name="user-plan-and-progress"),
